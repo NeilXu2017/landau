@@ -2,6 +2,7 @@ package util
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os/exec"
 	"runtime"
@@ -43,6 +44,10 @@ func ExecCmdAlwaysLog(cmd string) (string, error) {
 }
 
 func ExecCmd4(cmd string, replacedLogStr []string, stdin io.Reader, formatCmdOut func(string) string, enableLog bool) (string, error) {
+	return ExecCmd5(cmd, replacedLogStr, stdin, formatCmdOut, enableLog, true)
+}
+
+func ExecCmd5(cmd string, replacedLogStr []string, stdin io.Reader, formatCmdOut func(string) string, enableLog bool, mergeStderr bool) (string, error) {
 	start := time.Now()
 	var c *exec.Cmd
 	if runtime.GOOS == "windows" {
@@ -71,6 +76,13 @@ func ExecCmd4(cmd string, replacedLogStr []string, stdin io.Reader, formatCmdOut
 	err := c.Run()
 	outStr := out.String()
 	stdErrStr := stderrOut.String()
+	if outStr == "" && mergeStderr { //stdout 无内容时，如果开启了合并 stderr,有内容或者有 err 输出到out
+		if stdErrStr != "" {
+			outStr = stdErrStr
+		} else if err != nil {
+			outStr = fmt.Sprintf("%v", err)
+		}
+	}
 	if err != nil || stdErrStr != "" || enableLog {
 		logOutStr := outStr
 		if formatCmdOut != nil {
