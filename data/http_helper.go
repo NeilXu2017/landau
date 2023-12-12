@@ -30,6 +30,7 @@ type (
 	HTTPHelper struct {
 		method                     HTTPMethod
 		url                        string
+		serviceName                string                 //may get url by service name
 		requestParams              map[string]interface{} // map 结构请求参数
 		requestRawObject           interface{}            // 非map结构请求参数
 		postBody                   string                 //Post方法，自定义body内容
@@ -52,6 +53,7 @@ type (
 		logSignature               string
 		debugResponseHeaderField   []string
 		insecureSkipVerify         bool
+		appendServiceId            bool //add head tag
 	}
 	_HttpCookieJar struct {
 		cookies []*http.Cookie
@@ -89,6 +91,7 @@ func NewHTTPHelper(options ...HTTPHelperOptionFunc) (*HTTPHelper, error) {
 		showLogResponseSummarySize: 2048,
 		debugSignature:             false,
 		debugResponseHeaderField:   []string{},
+		appendServiceId:            true,
 	}
 	for _, option := range options {
 		if err := option(c); err != nil {
@@ -115,6 +118,29 @@ func CallHTTPService(method HTTPMethod, url string, params map[string]interface{
 func CallHTTPService2(url string, rawObject interface{}, responseObject interface{}) error {
 	httpHelper, err := NewHTTPHelper(
 		SetHTTPUrl(url),
+		SetHTTPRequestRawObject(rawObject),
+	)
+	if err != nil {
+		return err
+	}
+	return httpHelper.Call2(responseObject)
+}
+
+func CallHTTPServiceEx(method HTTPMethod, serviceName string, params map[string]interface{}, responseObject interface{}) error {
+	httpHelper, err := NewHTTPHelper(
+		SetHTTPServiceName(serviceName),
+		SetHTTPMethod(method),
+		SetHTTPRequestParams(params),
+	)
+	if err != nil {
+		return err
+	}
+	return httpHelper.Call2(responseObject)
+}
+
+func CallHTTPServiceEx2(serviceName string, rawObject interface{}, responseObject interface{}) error {
+	httpHelper, err := NewHTTPHelper(
+		SetHTTPServiceName(serviceName),
 		SetHTTPRequestRawObject(rawObject),
 	)
 	if err != nil {
@@ -322,6 +348,20 @@ func SetHTTPInsecureSkipVerify(insecureSkipVerify bool) HTTPHelperOptionFunc {
 	}
 }
 
+func SetHTTPServiceName(serviceName string) HTTPHelperOptionFunc {
+	return func(c *HTTPHelper) error {
+		c.serviceName = serviceName
+		return nil
+	}
+}
+
+func SetHTTPAppendServiceId(appendServiceId bool) HTTPHelperOptionFunc {
+	return func(c *HTTPHelper) error {
+		c.appendServiceId = appendServiceId
+		return nil
+	}
+}
+
 // SetHTTPDebugSignature 设置 HTTP debugSignature 参数
 func SetHTTPDebugSignature(debugSignature bool) HTTPHelperOptionFunc {
 	return func(c *HTTPHelper) error {
@@ -344,6 +384,9 @@ func (c *_HttpCookieJar) Cookies(u *url.URL) []*http.Cookie {
 
 func (c *HTTPHelper) _prepareRequest() (string, string, io.Reader, string) {
 	reqURL, reqMethod, postBody, signature, debugSignatureStr := c.url, "", "", "", ""
+	if reqURL == "" && c.serviceName != "" {
+		reqURL = getServiceAddrByName(c.serviceName)
+	}
 	if c.publicKey != "" && c.privateKey != "" && c.requestParams != nil { //需要签名
 		c.requestParams[c.publicKeyParaName] = c.publicKey
 		signature, debugSignatureStr = getSha1Sign(c.requestParams, c.privateKey)
@@ -436,6 +479,10 @@ func (c *HTTPHelper) Call() (string, error) {
 			req.Header.Set(k, v)
 		}
 	}
+	if c.appendServiceId && ServiceName != "" && ServiceAddress != "" {
+		req.Header.Set(ServiceNameHeadTag, ServiceName)
+		req.Header.Set(ServiceAddressHeadTag, ServiceAddress)
+	}
 	response, responseErr := client.Do(req)
 	c.Response = response
 	if responseErr != nil {
@@ -446,6 +493,10 @@ func (c *HTTPHelper) Call() (string, error) {
 	if readResponseErr != nil {
 		log.Error2(c.logger, "[HTTP]\t[%s]\tURL:%s\t%s\tError:%v", time.Since(start), reqURL, requestLoggerMsg, readResponseErr)
 		return "", readResponseErr
+	}
+	svrName, svrAddr := response.Header.Get(ServiceNameHeadTag), response.Header.Get(ServiceAddressHeadTag)
+	if svrName != "" && svrAddr != "" {
+		LastTraceServiceAddress.Store(svrName, svrAddr)
 	}
 	responseBody := string(responseByteBody)
 	responseLoggerMsg := ""

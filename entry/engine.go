@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/NeilXu2017/landau/data"
 	sysLog "log"
 	"net"
 	"net/http"
@@ -99,6 +100,12 @@ func (c *LandauServer) Start() {
 			if c.RegisterHTTPCustomHandles != nil {
 				c.RegisterHTTPCustomHandles(c.ginRouter)
 			}
+			if !c.DisableServiceHealthReceiver {
+				api.AddHTTPHandle2("/ServiceHealthCheck", "ServiceHealthCheck", data.NewServiceHealthCheckRequest, data.DoHealthCheck)
+				c.ginRouter.GET("/output_keepalived_trace", data.OutputKeepaliveStatics)
+			}
+			api.DisableTraceServiceAddress = c.DisableTraceServiceAddress
+			data.ServiceName = c.ServiceName
 			api.SetPostBindingComplex(c.PostBindingComplex)
 			api.SetUnRegisterHandle(c.UnRegisterHTTPHandle)
 			api.RegisterHTTPHandle(c.ginRouter)
@@ -125,6 +132,14 @@ func (c *LandauServer) Start() {
 				go prometheus.StartApiMetric()
 			}
 			address := fmt.Sprintf("%s:%d", util.IPConvert(addr, util.IPV6Bracket), c.HTTPServicePort)
+			data.ServiceAddress = address
+			if c.CheckServiceHealth != nil {
+				serviceList := c.CheckServiceHealth()
+				for serviceName, address := range serviceList {
+					data.RegisterServiceHealth(serviceName, address)
+				}
+				go data.StartHealthChecking()
+			}
 			log.Info("[HTTP] Listen address:%s", address)
 			if c.DisableGracefulStopping {
 				if err := c.ginRouter.Run(address); err != nil {

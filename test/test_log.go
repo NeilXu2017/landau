@@ -57,7 +57,7 @@ var (
 				"rotate": false,								
 				"maxsize": "500M",
 				"daily": true
-			}			 
+			}
 		],
 		"stdout2File":"jsonLogFile"
 	}	

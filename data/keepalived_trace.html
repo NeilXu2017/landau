@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Service Keepalive Trace</title>
+    <style>
+        table {
+            border-collapse: collapse;
+            border: 1px solid;
+        }
+        th, td {
+            border: 1px solid;
+        }
+    </style>
+</head>
+<body>
+    <h1>Service Keepalive Trace</h1>
+    <p>查询时间:{{.QueryTime}}</p>
+    <table>
+        <tr>
+            <td style="width:200px;background-color: lightgray;">Service Name</td>
+            <td style="width:250px;">{{.ServiceName}}</td>
+            <td style="width:200px;background-color: lightgray;">Service Address</td>
+            <td style="width:350px;">{{.ServiceAddress}}</td>
+        </tr>
+        <tr>
+            <td style="background-color: lightgray;">Service Name Head Tag</td>
+            <td>{{.ServiceNameHeadTag}}</td>
+            <td style="background-color: lightgray;">Service Address Head Tag</td>
+            <td>{{.ServiceAddressHeadTag}}</td>
+        </tr>
+        <tr>
+            <td style="background-color: lightgray;">Health Check Interval</td>
+            <td>{{.HealthCheckPeriod}}</td>
+            <td style="background-color: lightgray;">Health Check Timeout</td>
+            <td>{{.HealthCheckTimeout}}</td>
+        </tr>
+        <tr>
+            <td style="background-color: lightgray;">Available Period Received</td>
+            <td>{{.ReceiverKeepTimer}}</td>
+            <td>&nbsp;</td>
+            <td>&nbsp;</td>
+        </tr>
+    </table>
+    <br/>
+    <p>Checked Service Health Status</p>
+    <table>
+        <tr style="background-color: lightgray;">
+            <th style="width:200px;">ServiceName</th>
+            <th style="width:350px;">Address</th>
+            <th style="width:200px;text-align: center;">Health Status</th>
+            <th style="width:100px;">Call Count</th>
+            <th style="width:200px;">Check Time</th>
+        </tr>
+        {{range $k, $node := .Node}}
+        <tr>
+            <td rowspan="{{.AddressNum}}">{{.ServiceName}}</td>
+            <td>{{.FirstAddress}}</td>
+            <td style="text-align: center;">{{.FirstHealth}}</td>
+            <td style="text-align: right;">{{.FirstCallCount}}</td>
+            <td style="text-align: right;">{{.FirstReceiveTime}}</td>
+        </tr>
+        {{range .OtherAddress}}
+        <tr>
+            <td>{{.Address}}</td>
+            <td style="text-align: center;">{{.Health}}</td>
+            <td style="text-align: right;">{{.CallCount}}</td>
+            <td style="text-align: right;">{{.ReceiveTime}}</td>
+        </tr>
+        {{end}}
+        {{end}}
+    </table>
+    <br/>
+    <p>Received Service Health Status</p>
+    <table>
+        <tr style="background-color: lightgray;">
+            <th style="width:200px;">ServiceName</th>
+            <th style="width:350px;">Address</th>
+            <th style="width:200px;">Call Count</th>
+            <th style="width:200px;">Receive Time</th>
+        </tr>
+        {{range $k, $node := .TraceCallerService}}
+        <tr>
+            <td rowspan="{{.AddressNum}}">{{.ServiceName}}</td>
+            <td>{{.FirstAddress}}</td>
+            <td style="text-align: right;">{{.FirstCallCount}}</td>
+            <td style="text-align: right;">{{.FirstReceiveTime}}</td>
+        </tr>
+        {{range .OtherAddress}}
+        <tr>
+            <td>{{.Address}}</td>
+            <td style="text-align: right;">{{.CallCount}}</td>
+            <td style="text-align: right;">{{.ReceiveTime}}</td>
+        </tr>
+        {{end}}
+        {{end}}
+    </table>
+    <br/>
+    <p>Last traced service address from request header</p>
+    <table>
+        <tr style="background-color: lightgray;">
+            <th style="width:200px;">ServiceName</th>
+            <th style="width:350px;">Address</th>
+        </tr>
+        {{range $k, $node := .LastTraceService}}
+        <tr>
+            <td>{{.ServiceName}}</td>
+            <td>{{.FirstAddress}}</td>
+        </tr>
+        {{end}}
+    </table>
+</body>
+</html>

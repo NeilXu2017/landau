@@ -225,6 +225,8 @@ func registerHTTPHandles() {
 	api.AddRESTFulAPIHttpHandle("/three/:id/pay", newPersonRequestParameter, personHandle)
 	api.AddHTTPHandle2("/LongTimerTask", "LongTimerTask", newLongTimerTaskParam, doLongTimerTask)
 	api.AddHTTPHandle2("/LearnCode", "LearnCode", newLearnCodeParam, doLearnCodeTask)
+	api.AddHTTPHandle2("/CallServiceByServiceName", "CallServiceByServiceName", newTestCheckKeepaliveRequest, doTestCheckKeepalive)
+	api.AddHTTPHandle2("/CheckServiceCall", "CheckServiceCall", newCallServiceNameRequest, doCallServiceName)
 }
 
 func registerHTTPCustomHandles(router *gin.Engine) {

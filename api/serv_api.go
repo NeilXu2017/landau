@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/NeilXu2017/landau/data"
 	"io"
 	"net/http"
 	"reflect"
@@ -92,6 +93,7 @@ var (
 	unHtmlEscapeURL              = make(map[string]string)
 	unHtmlEscapeAction           = make(map[string]string)
 	unRegisterHandle             HTTPHandleFunc
+	DisableTraceServiceAddress   bool
 )
 
 func (c *httpRequestActionParam) String() string {
@@ -287,6 +289,7 @@ func isACLDeny(urlPath string, actionID string, c *gin.Context) (interface{}, bo
 
 func dispatchAction(c *gin.Context, requestParams interface{}) (interface{}, string) {
 	p := requestParams.(*httpRequestActionParam)
+	_traceLastServiceAddress(c)
 	if a, existed := httpActionEntry[p.Action]; existed {
 		if response, isDeny := isACLDeny("/", p.Action, c); isDeny {
 			return response, ""
@@ -327,6 +330,7 @@ func httpHandleProxy(c *gin.Context) {
 	start := time.Now()
 	urlPath := c.Request.URL.Path
 	isPostMethod := c.Request.Method == "POST"
+	_traceLastServiceAddress(c)
 	if isPostMethod { //POST 将 Request.Body 对象转换成可重复读取对象
 		var bodyBytes []byte
 		if c.Request.Body != nil {
@@ -534,4 +538,14 @@ func _getIntValueFromInterface(v interface{}) int {
 		}
 	}
 	return 0
+}
+
+func _traceLastServiceAddress(c *gin.Context) {
+	if !DisableTraceServiceAddress {
+		serviceName := c.Request.Header.Get(data.ServiceNameHeadTag)
+		address := c.Request.Header.Get(data.ServiceAddressHeadTag)
+		if serviceName != "" && address != "" {
+			data.LastTraceServiceAddress.Store(serviceName, address)
+		}
+	}
 }

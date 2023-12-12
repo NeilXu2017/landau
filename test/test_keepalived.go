@@ -1,0 +1,143 @@
+package test
+
+import (
+	"encoding/json"
+	"fmt"
+	"github.com/NeilXu2017/landau/data"
+	"github.com/NeilXu2017/landau/entry"
+	"github.com/NeilXu2017/landau/log"
+	"github.com/gin-gonic/gin"
+	"strings"
+)
+
+type (
+	callServiceNameRequest struct {
+		Action string
+		Name   string //调用的service name
+		Caller string //调用
+	}
+	callServiceNameResponse struct {
+		Code            int
+		Message         string
+		ServiceResponse interface{}
+	}
+
+	testCheckKeepaliveRequest struct {
+		Action string
+		Caller string
+	}
+	testCheckKeepaliveResponse struct {
+		Code                int
+		ResponseServiceName string
+	}
+)
+
+func newTestCheckKeepaliveRequest() interface{} {
+	return &testCheckKeepaliveRequest{}
+}
+func (c *testCheckKeepaliveRequest) String() string {
+	b, _ := json.Marshal(c)
+	return string(b)
+}
+func doTestCheckKeepalive(c *gin.Context, param interface{}) (interface{}, string) {
+	reqeust := param.(*testCheckKeepaliveRequest)
+	rsp := testCheckKeepaliveResponse{
+		Code:                0,
+		ResponseServiceName: fmt.Sprintf("Hi %s,Response from service:%s", reqeust.Caller, data.ServiceName),
+	}
+	return rsp, reqeust.String()
+}
+func (c *callServiceNameRequest) String() string {
+	b, _ := json.Marshal(c)
+	return string(b)
+}
+func newCallServiceNameRequest() interface{} {
+	return &callServiceNameRequest{}
+}
+
+func doCallServiceName(c *gin.Context, param interface{}) (interface{}, string) {
+	reqeust := param.(*callServiceNameRequest)
+	result := callServiceNameResponse{}
+	if reqeust.Name != "" {
+		req := testCheckKeepaliveRequest{
+			Action: "CallServiceByServiceName",
+			Caller: fmt.Sprintf("%s_%s", data.ServiceName, reqeust.Caller),
+		}
+		rsp := testCheckKeepaliveResponse{}
+		data.CallHTTPServiceEx2(reqeust.Name, req, &rsp)
+		result.ServiceResponse = rsp
+	}
+	return result, reqeust.String()
+}
+
+func KeepalivedClient(httpPort int) {
+	s := &entry.LandauServer{
+		LogConfig:          logConfigContent,
+		DefaultLoggerName:  entry.DefaultLogger,
+		GinLoggerName:      entry.DefaultGinLogger,
+		HTTPServiceAddress: "127.0.0.1",
+		HTTPServicePort:    httpPort,
+		GRPCServicePort:    0,
+		RegisterGRPCHandle: registerRGPCHandle,
+		CustomInit:         myCustomInit,
+		//GetCronTasks:              getCronTasks,
+		RegisterHTTPHandles:       registerHTTPHandles,
+		RegisterHTTPCustomHandles: registerHTTPCustomHandles,
+		HTTPNeedCheckACL:          true,
+		HTTPCheckACL:              myCheckACL,
+		HTTPEnableCustomLogTag:    true,
+		HTTPCustomLog:             getUserSessionID,
+		EnablePrometheusMetric:    true,
+		PrometheusMetricNamespace: "landau",
+		ServiceName:               "HostAgent",
+		ServiceAddress:            fmt.Sprintf("http://127.0.0.1:%d", httpPort),
+		DynamicReloadConfig: func() {
+			log.Info("[DynamicReloadConfig] received, changing app biz config.")
+		},
+	}
+	s.Start()
+}
+
+func KeepalivedService(serviceName string, httpPort int, checkServiceName string) {
+	getCheckServiceHealth := func() map[string][]string {
+		m := make(map[string][]string)
+		services := strings.Split(checkServiceName, "$")
+		for _, s := range services {
+			list := strings.Split(s, ",")
+			if len(list) > 1 {
+				var address []string
+				for i := 1; i < len(list); i++ {
+					address = append(address, list[i])
+				}
+				m[list[0]] = address
+			}
+		}
+		return m
+	}
+	s := &entry.LandauServer{
+		LogConfig:                 logConfigContent,
+		DefaultLoggerName:         entry.DefaultLogger,
+		GinLoggerName:             entry.DefaultGinLogger,
+		HTTPServiceAddress:        "127.0.0.1",
+		HTTPServicePort:           httpPort,
+		GRPCServicePort:           0,
+		RegisterGRPCHandle:        registerRGPCHandle,
+		CustomInit:                myCustomInit,
+		GetCronTasks:              getCronTasks,
+		RegisterHTTPHandles:       registerHTTPHandles,
+		RegisterHTTPCustomHandles: registerHTTPCustomHandles,
+		HTTPNeedCheckACL:          true,
+		HTTPCheckACL:              myCheckACL,
+		HTTPEnableCustomLogTag:    true,
+		HTTPCustomLog:             getUserSessionID,
+		EnablePrometheusMetric:    true,
+		PrometheusMetricNamespace: serviceName,
+		ServiceName:               serviceName,
+		ServiceAddress:            fmt.Sprintf("http://127.0.0.1:%d", httpPort),
+		CheckServiceHealth:        getCheckServiceHealth,
+		DynamicReloadConfig: func() {
+			log.Info("[DynamicReloadConfig] received, changing app biz config.")
+		},
+	}
+	s.Start()
+}
