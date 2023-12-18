@@ -94,8 +94,7 @@ func restFullHttpHandleProxy(c *gin.Context) {
 		var response interface{}
 		requestParamLog := ""
 		bizParamStruct := a.NewRequestParameter()
-		param, bindError := bindParams(c, &bizParamStruct, isPostMethod, isBindingComplex)
-		setRestFulKeys(param, c.Param(a.ID), c.Request.Method)
+		param, bindError := bindParamsRestful(c, &bizParamStruct, isPostMethod, isBindingComplex, c.Param(a.ID), c.Request.Method)
 		if bindError == nil {
 			response, requestParamLog = a.HttpHandle(c, param)
 		} else {

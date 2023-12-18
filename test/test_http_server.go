@@ -54,7 +54,7 @@ type (
 		Action string `json:"Action"`
 	}
 	personRequestParam struct {
-		KeyID  int    `restful:"id"`
+		KeyID  int    `restful:"id" binding:"required"`
 		Method string `restful:"method"`
 		Name   string `form:"name" json:"name"`
 	}

@@ -326,6 +326,18 @@ func bindParams(c *gin.Context, param interface{}, isPostMethod bool, isBindingC
 	return p, bindError
 }
 
+func bindParamsRestful(c *gin.Context, param interface{}, isPostMethod bool, isBindingComplex bool, id, method string) (interface{}, error) {
+	var bindError error
+	v := reflect.ValueOf(param)
+	p := reflect.Indirect(v).Interface()
+	setRestFulKeys(p, id, method)
+	if isPostMethod {
+		bindError = bindPost(p, c, isBindingComplex)
+	} else {
+		bindError = bindQuery(p, c)
+	}
+	return p, bindError
+}
 func httpHandleProxy(c *gin.Context) {
 	start := time.Now()
 	urlPath := c.Request.URL.Path
