@@ -42,6 +42,7 @@ type (
 		newRequesterParameter HTTPRequestParameter
 		logResponse           HTTPLogResponse
 		logger                string
+		httpCodeStatus        string
 	}
 	// HTTPAuditLog 审核日志记录
 	HTTPAuditLog             func(urlPath string, action string, request *string, response *string, c *gin.Context)
@@ -94,6 +95,8 @@ var (
 	unHtmlEscapeAction           = make(map[string]string)
 	unRegisterHandle             HTTPHandleFunc
 	DisableTraceServiceAddress   bool
+	replaceDefaultBindError      bool
+	defaultBindErrorResponse2    interface{}
 )
 
 func (c *httpRequestActionParam) String() string {
@@ -126,6 +129,11 @@ func init() {
 		return &httpRequestActionParam{}
 	}
 	AddHTTPHandle2("/", "", newActionParam, dispatchAction)
+}
+
+func SetDefaultBindError(replaced bool, replaceResponse interface{}) {
+	replaceDefaultBindError = replaced
+	defaultBindErrorResponse2 = replaceResponse
 }
 
 // SetHTTPAuditLog 设置审计日志记录回调函数
@@ -191,6 +199,22 @@ func AddHTTPHandle(urlPath string, actionID string, newRequesterParameter HTTPRe
 // AddHTTPHandle2 注册URL处理程序
 func AddHTTPHandle2(urlPath string, actionID string, newRequesterParameter HTTPRequestParameter, handleFunc HTTPHandleFunc) {
 	AddHTTPHandle(urlPath, actionID, newRequesterParameter, handleFunc, defaultLogResponse, defaultAPILogger)
+}
+
+func AddHTTPHandle3(urlPath string, actionID string, newRequesterParameter HTTPRequestParameter, handleFunc HTTPHandleFunc, httpCodeStatus string) {
+	h := httpHandleEntry{
+		handleFunc:            handleFunc,
+		newRequesterParameter: newRequesterParameter,
+		logResponse:           defaultLogResponse,
+		logger:                defaultAPILogger,
+		httpCodeStatus:        httpCodeStatus,
+	}
+	if urlPath != "" {
+		httpEntry[urlPath] = h
+	}
+	if actionID != "" {
+		httpActionEntry[actionID] = h
+	}
 }
 
 // AddUnHtmlEscapeHttpHandle 注册URL处理程序,响应json内容不进行 HTML Escape 处理
@@ -359,10 +383,14 @@ func httpHandleProxy(c *gin.Context) {
 					jsonpCallback = c.DefaultQuery(responseJSONPCallbackQueryName, "")
 				}
 				addAccessControlAllowHeader(c)
+				httpCode := http.StatusOK
+				if a.httpCodeStatus != "" {
+					httpCode = getHttpStatusCodeFromResponseObject(response, a.httpCodeStatus, http.StatusOK)
+				}
 				if jsonpCallback == "" {
-					c.JSON(http.StatusOK, response)
+					c.JSON(httpCode, response)
 				} else {
-					c.Render(http.StatusOK, render.JsonpJSON{Callback: jsonpCallback, Data: response})
+					c.Render(httpCode, render.JsonpJSON{Callback: jsonpCallback, Data: response})
 				}
 				strCustomLogTag := ""
 				if customAPILogTag && httpCustomLogTag != nil {
@@ -388,7 +416,11 @@ func httpHandleProxy(c *gin.Context) {
 		if bindError == nil {
 			response, requestParamLog = a.handleFunc(c, param)
 		} else {
-			response = gin.H{"RetCode": 230, "Message": fmt.Sprintf("Bind params error [%v]", bindError)}
+			if replaceDefaultBindError {
+				response = defaultBindErrorResponse2
+			} else {
+				response = gin.H{"RetCode": 230, "Message": fmt.Sprintf("Bind params error [%v]", bindError)}
+			}
 		}
 		jsonpCallback := ""
 		if responseJSONPEnable {
@@ -407,15 +439,19 @@ func httpHandleProxy(c *gin.Context) {
 				jsonEscapeHtml = false
 			}
 		}
+		httpCode := http.StatusOK
+		if a.httpCodeStatus != "" {
+			httpCode = getHttpStatusCodeFromResponseObject(response, a.httpCodeStatus, http.StatusOK)
+		}
 		if jsonpCallback == "" {
 			if jsonEscapeHtml {
-				c.JSON(http.StatusOK, response)
+				c.JSON(httpCode, response)
 			} else {
 				noEscapeHtmlResponse := UnHtmlEscapeJsonResponse{Response: response}
-				c.Render(http.StatusOK, noEscapeHtmlResponse)
+				c.Render(httpCode, noEscapeHtmlResponse)
 			}
 		} else {
-			c.Render(http.StatusOK, render.JsonpJSON{Callback: jsonpCallback, Data: response})
+			c.Render(httpCode, render.JsonpJSON{Callback: jsonpCallback, Data: response})
 		}
 		strCustomLogTag := ""
 		if customAPILogTag && httpCustomLogTag != nil {

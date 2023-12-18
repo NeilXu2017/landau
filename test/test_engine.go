@@ -17,11 +17,17 @@ import (
 type (
 	myCronProxy struct{}
 
-	oneInstance struct{ Name string }
+	oneInstance          struct{ Name string }
+	ConsoleErrorResponse struct {
+		HttpCode int    `json:"-"`       //重设 HttpCode
+		Code     string `json:"code"`    //错误代码
+		Message  string `json:"message"` //错误描述
+	}
 )
 
 var (
 	startTicket = 0
+	BadRequest  = ConsoleErrorResponse{HttpCode: 400, Code: "BadRequest", Message: "Bad request parameters or illegal request."}
 )
 
 func (c *myCronProxy) Heart() {
@@ -219,9 +225,10 @@ func personHandle(_ *gin.Context, param interface{}) (interface{}, string) {
 }
 
 func registerHTTPHandles() {
+	api.SetDefaultRestfulBindError(true, BadRequest)
 	api.AddHTTPHandle2("/login", "Login", newLoginRequestParam, loginHandle)
 	api.AddHTTPHandle2("/rand", "Rand", newRandRequestParam, randHandle)
-	api.AddRESTFulAPIHttpHandle("/person/:id", newPersonRequestParameter, personHandle)
+	api.AddRESTFulAPIHttpHandle2("/person/:id", newPersonRequestParameter, personHandle, "HttpCode")
 	api.AddRESTFulAPIHttpHandle("/three/:id/pay", newPersonRequestParameter, personHandle)
 	api.AddHTTPHandle2("/LongTimerTask", "LongTimerTask", newLongTimerTaskParam, doLongTimerTask)
 	api.AddHTTPHandle2("/LearnCode", "LearnCode", newLearnCodeParam, doLearnCodeTask)

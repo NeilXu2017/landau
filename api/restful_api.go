@@ -23,11 +23,14 @@ type (
 		HttpHandle          HTTPHandleFunc
 		_urls               []string
 		ID                  string
+		HttpCodeStatus      string
 	}
 )
 
 var (
-	restFulHttpEntry = make(map[string]_RESTFulApiEntry)
+	restFulHttpEntry                = make(map[string]_RESTFulApiEntry)
+	replaceDefaultRestfulBindError  bool
+	defaultRestfulBindErrorResponse interface{}
 )
 
 func AddRESTFulAPIHttpHandle(urlPath string, newRequesterParameter HTTPRequestParameter, handleFunc HTTPHandleFunc) {
@@ -39,6 +42,22 @@ func AddRESTFulAPIHttpHandle(urlPath string, newRequesterParameter HTTPRequestPa
 		}
 	}
 	restFulHttpEntry[urlPath] = _RESTFulApiEntry{Url: urlPath, NewRequestParameter: newRequesterParameter, HttpHandle: handleFunc, _urls: urls, ID: id}
+}
+
+func AddRESTFulAPIHttpHandle2(urlPath string, newRequesterParameter HTTPRequestParameter, handleFunc HTTPHandleFunc, httpCodeFieldName string) {
+	urls, id := strings.Split(urlPath, "/"), ""
+	for _, u := range urls {
+		if strings.Index(u, ":") == 0 {
+			id = strings.Replace(u, ":", "", 1)
+			break
+		}
+	}
+	restFulHttpEntry[urlPath] = _RESTFulApiEntry{Url: urlPath, NewRequestParameter: newRequesterParameter, HttpHandle: handleFunc, _urls: urls, ID: id, HttpCodeStatus: httpCodeFieldName}
+}
+
+func SetDefaultRestfulBindError(replaced bool, replaceResponse interface{}) {
+	replaceDefaultRestfulBindError = replaced
+	defaultRestfulBindErrorResponse = replaceResponse
 }
 
 func isExistRESTFul(urlPath string) (*_RESTFulApiEntry, bool) {
@@ -98,17 +117,25 @@ func restFullHttpHandleProxy(c *gin.Context) {
 		if bindError == nil {
 			response, requestParamLog = a.HttpHandle(c, param)
 		} else {
-			response = gin.H{"RetCode": 230, "Message": fmt.Sprintf("Bind params error [%v]", bindError)}
+			if replaceDefaultRestfulBindError {
+				response = defaultRestfulBindErrorResponse
+			} else {
+				response = gin.H{"RetCode": 230, "Message": fmt.Sprintf("Bind params error [%v]", bindError)}
+			}
 		}
 		jsonpCallback := ""
 		if responseJSONPEnable {
 			jsonpCallback = c.DefaultQuery(responseJSONPCallbackQueryName, "")
 		}
 		addAccessControlAllowHeader(c)
+		httpCode := http.StatusOK
+		if a.HttpCodeStatus != "" {
+			httpCode = getHttpStatusCodeFromResponseObject(response, a.HttpCodeStatus, http.StatusOK)
+		}
 		if jsonpCallback == "" {
-			c.JSON(http.StatusOK, response)
+			c.JSON(httpCode, response)
 		} else {
-			c.Render(http.StatusOK, render.JsonpJSON{Callback: jsonpCallback, Data: response})
+			c.Render(httpCode, render.JsonpJSON{Callback: jsonpCallback, Data: response})
 		}
 		strCustomLogTag := ""
 		if customAPILogTag && httpCustomLogTag != nil {
@@ -131,4 +158,39 @@ func RegisterRestfulHTTPHandle(r *gin.Engine) {
 	for k := range restFulHttpEntry {
 		r.Any(k, restFullHttpHandleProxy)
 	}
+}
+
+func getHttpStatusCodeFromResponseObject(ptr interface{}, fieldName string, defaultHttpCode int) int {
+	if gH, ok := ptr.(gin.H); ok {
+		if v, ok := gH[fieldName]; ok {
+			return _getIntValueFromInterface(v)
+		}
+	}
+	val := reflect.ValueOf(ptr)
+	switch val.Kind() {
+	case reflect.Struct:
+		typ := reflect.TypeOf(ptr)
+		for i := 0; i < typ.NumField(); i++ {
+			if typeField := typ.Field(i); typeField.Name == fieldName {
+				retCodeVal := val.Field(i)
+				switch retCodeVal.Kind() {
+				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+					return int(retCodeVal.Int())
+				case reflect.Float32, reflect.Float64:
+					return int(retCodeVal.Float())
+				default:
+					if retCodeVal.CanInterface() {
+						return _getIntValueFromInterface(retCodeVal.Interface())
+					}
+				}
+			}
+		}
+	case reflect.Map:
+		if m, ok := ptr.(map[string]interface{}); ok {
+			if v, ok := m[fieldName]; ok {
+				return _getIntValueFromInterface(v)
+			}
+		}
+	}
+	return defaultHttpCode
 }
