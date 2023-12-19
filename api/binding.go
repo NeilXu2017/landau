@@ -33,7 +33,7 @@ func prepareRequestParam(c *gin.Context, isPostMethod bool) {
 				c.Set(requestRawParams, body)
 				c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
 			} else {
-				c.Set(requestRawParams, "{}")
+				c.Set(requestRawParams, []byte("{}"))
 			}
 		}
 	}
