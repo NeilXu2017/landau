@@ -27,9 +27,14 @@ func init() {
 
 func prepareRequestParam(c *gin.Context, isPostMethod bool) {
 	if isPostMethod {
-		if body, err := io.ReadAll(c.Request.Body); err == nil && len(body) > 0 {
-			c.Set(requestRawParams, body)
-			c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
+		body, err := io.ReadAll(c.Request.Body)
+		if err == nil {
+			if len(body) > 0 {
+				c.Set(requestRawParams, body)
+				c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
+			} else {
+				c.Set(requestRawParams, "{}")
+			}
 		}
 	}
 }
