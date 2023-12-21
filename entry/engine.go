@@ -5,7 +5,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/NeilXu2017/landau/api"
 	"github.com/NeilXu2017/landau/data"
+	"github.com/NeilXu2017/landau/log"
+	"github.com/NeilXu2017/landau/prometheus"
+	"github.com/NeilXu2017/landau/util"
+	"github.com/NeilXu2017/landau/version"
 	sysLog "log"
 	"net"
 	"net/http"
@@ -18,12 +23,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
-	"github.com/NeilXu2017/landau/api"
-	"github.com/NeilXu2017/landau/log"
-	"github.com/NeilXu2017/landau/prometheus"
-	"github.com/NeilXu2017/landau/util"
-	"github.com/NeilXu2017/landau/version"
 
 	"github.com/gin-gonic/gin"
 
@@ -101,7 +100,8 @@ func (c *LandauServer) Start() {
 				c.RegisterHTTPCustomHandles(c.ginRouter)
 			}
 			if !c.DisableServiceHealthReceiver {
-				api.AddHTTPHandle2("/ServiceHealthCheck", "ServiceHealthCheck", data.NewServiceHealthCheckRequest, data.DoHealthCheck)
+				healthReceiverLog := func(response interface{}) string { return fmt.Sprintf("%v", response) }
+				api.AddHTTPHandle("/ServiceHealthCheck", "ServiceHealthCheck", data.NewServiceHealthCheckRequest, data.DoHealthCheck, healthReceiverLog, "health_receiver")
 				c.ginRouter.GET("/output_keepalived_trace", data.OutputKeepaliveStatics)
 			}
 			api.DisableTraceServiceAddress = c.DisableTraceServiceAddress
@@ -267,6 +267,7 @@ func gracefulStop(gracefulTimeout uint64) {
 		go httpSrvShutdown()
 		go cronJobShutdown()
 		go grpcSvrShutdown()
+		data.NotifyCheckerShutdown()
 		wg.Wait()
 	}
 	monitorSignal := make(chan os.Signal)

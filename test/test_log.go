@@ -57,6 +57,26 @@ var (
 				"rotate": false,								
 				"maxsize": "500M",
 				"daily": true
+			},
+			{
+				"enable": true,
+				"level": "DEBUG",
+				"filename":"health_sender.log",
+				"category":"health_checker",
+				"pattern": "%M",
+				"rotate": false,								
+				"maxsize": "500M",
+				"daily": true
+			},
+			{
+				"enable": true,
+				"level": "DEBUG",
+				"filename":"health_receiver.log",
+				"category":"health_receiver",
+				"pattern": "%M",
+				"rotate": false,								
+				"maxsize": "500M",
+				"daily": true
 			}
 		],
 		"stdout2File":"jsonLogFile"

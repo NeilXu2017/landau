@@ -29,6 +29,7 @@ type (
 		CheckTime      int64  //request time,unix time
 		Checker        string //checking source
 		CheckerAddress string //checking source service address
+		NotifyShutdown bool   //notify shutdown message, receiver should mark the address unreachable.
 	}
 	_HealthCheckResponse struct {
 		RetCode      int    //response code should be 0
@@ -89,7 +90,7 @@ func StartHealthChecking() {
 		defer timer.Stop()
 		for {
 			<-timer.C
-			_healthChecking()
+			_healthChecking(false)
 		}
 	}
 }
@@ -104,6 +105,57 @@ func RegisterServiceHealth(serviceName string, serviceAddress []string) {
 		AvailableSeq: make(map[int]int),
 		ReceiveTime:  make(map[string]int64),
 	}
+}
+
+func (c *ServiceHealthInfo) IsExisted(addr string) bool {
+	for _, v := range c.Address {
+		if v == addr {
+			return true
+		}
+	}
+	return false
+}
+
+func ChangeServiceHealth(services map[string][]string) {
+	syncServiceMesh.Lock()
+	defer syncServiceMesh.Unlock()
+	for serviceName, serviceAddress := range services {
+		if v, ok := serviceHealthMesh[serviceName]; ok {
+			for _, addr := range serviceAddress {
+				if !v.IsExisted(addr) {
+					v.Address = append(v.Address, addr)
+				}
+			}
+		} else {
+			serviceHealthMesh[serviceName] = &ServiceHealthInfo{
+				ServiceName:  serviceName,
+				Address:      serviceAddress,
+				Health:       make(map[string]int),
+				CallCount:    make(map[string]uint64),
+				NextSequence: 0,
+				AvailableSeq: make(map[int]int),
+				ReceiveTime:  make(map[string]int64),
+			}
+		}
+	}
+}
+
+func RemoveReceiveService(serviceName, addr string) {
+	syncReceiverService.Lock()
+	if c, ok := receiveServiceMesh[serviceName]; ok {
+		c.ReceiveTime[addr] = 0
+		addrNotFound := true
+		for _, d := range c.Address {
+			if d == addr {
+				addrNotFound = false
+				break
+			}
+		}
+		if addrNotFound {
+			c.Address = append(c.Address, addr)
+		}
+	}
+	syncReceiverService.Unlock()
 }
 
 func RegisterReceiveService(serviceName, addr string) {
@@ -148,7 +200,11 @@ func (c _HealthCheckRequest) String() string {
 func DoHealthCheck(_ *gin.Context, param interface{}) (interface{}, string) {
 	req := param.(*_HealthCheckRequest)
 	if req.Checker != "" && req.CheckerAddress != "" {
-		RegisterReceiveService(req.Checker, req.CheckerAddress)
+		if req.NotifyShutdown {
+			RemoveReceiveService(req.Checker, req.CheckerAddress)
+		} else {
+			RegisterReceiveService(req.Checker, req.CheckerAddress)
+		}
 	}
 	rsp := _HealthCheckResponse{RetCode: 0, HealthStatus: 1, Message: "HealthCheckResponse"}
 	return rsp, req.String()
@@ -326,7 +382,7 @@ func _updateServerHealthStatus(serviceName, address string, healthStatus int) {
 	}
 }
 
-func _healthChecking() {
+func _healthChecking(notifyShutdown bool) {
 	services := make(map[string]string)
 	syncServiceMesh.RLock()
 	for name, d := range serviceHealthMesh {
@@ -338,9 +394,9 @@ func _healthChecking() {
 	wg, checkTime := sync.WaitGroup{}, time.Now().Unix()
 	check := func(addr, name string) {
 		defer wg.Done()
-		req := _HealthCheckRequest{Action: "ServiceHealthCheck", Service: name, CheckTime: checkTime, Checker: ServiceName, CheckerAddress: ServiceAddress}
+		req := _HealthCheckRequest{Action: "ServiceHealthCheck", Service: name, CheckTime: checkTime, Checker: ServiceName, CheckerAddress: ServiceAddress, NotifyShutdown: notifyShutdown}
 		rsp, healthStatus := &_HealthCheckResponse{}, 0
-		httpHelper, _ := NewHTTPHelper(SetHTTPUrl(addr), SetHTTPTimeout(HealthCheckTimeout), SetHTTPRequestRawObject(req))
+		httpHelper, _ := NewHTTPHelper(SetHTTPUrl(fmt.Sprintf("%s/ServiceHealthCheck", addr)), SetHTTPTimeout(HealthCheckTimeout), SetHTTPRequestRawObject(req), SetHTTPLogCategory("health_checker"))
 		if err := httpHelper.Call2(rsp); err == nil && rsp.RetCode == 0 && rsp.HealthStatus == 1 {
 			healthStatus = 1
 		}
@@ -351,4 +407,8 @@ func _healthChecking() {
 		go check(addr, name)
 	}
 	wg.Wait()
+}
+
+func NotifyCheckerShutdown() {
+	_healthChecking(true)
 }
