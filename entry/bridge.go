@@ -43,6 +43,7 @@ type (
 		DynamicReloadConfig          func()                                         //通过信号机制触发回调用户函数,一般用于重新加载配置, window平台不支持信号. 使用了 SIGUSR1 信号,需要同时 DisableGracefulStopping=false 时生效
 		DisableServiceHealthReceiver bool                                           //是否禁用 service health receiver 接口
 		CheckServiceHealth           func() map[string][]string                     //需要进行健康检查的 service
+		CheckServiceHealthPeriod     int                                            //CheckServiceHealth 检查周期
 		ServiceName                  string                                         //自身服务名称
 		ServiceAddress               string                                         //自身服务地址
 		DisableTraceServiceAddress   bool                                           //是否禁用 从request记录 service/service address

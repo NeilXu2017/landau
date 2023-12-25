@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"html/template"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -67,43 +68,90 @@ type (
 )
 
 var (
-	ServiceName                   = ""                                  //identity of this service
-	ServiceAddress                = ""                                  //address of this service
-	ServiceNameHeadTag            = "Landau-Service"                    //http head tag name of service id
-	ServiceAddressHeadTag         = "Landau-Service-Addr"               //http head name of service address
-	serviceHealthMesh             = make(map[string]*ServiceHealthInfo) //key: service name value: health info
-	syncServiceMesh               = sync.RWMutex{}                      //sync map variable access
-	HealthCheckPeriod             = 5                                   //default period of health checking
-	HealthCheckTimeout            = 3                                   //default timeout of health checking
-	LastTraceServiceAddress       = sync.Map{}                          //record exited last service address from requester
-	receiveServiceMesh            = make(map[string]*ServiceHealthInfo) //receive service address
-	syncReceiverService           = sync.RWMutex{}                      //sync map variable receiveServiceMesh
-	ReceiverKeepTimer       int64 = 30                                  //keep period to regard as health okay
+	ServiceName                                         = ""                                  //identity of this service
+	ServiceAddress                                      = ""                                  //address of this service
+	ServiceNameHeadTag                                  = "Landau-Service"                    //http head tag name of service id
+	ServiceAddressHeadTag                               = "Landau-Service-Addr"               //http head name of service address
+	serviceHealthMesh                                   = make(map[string]*ServiceHealthInfo) //key: service name value: health info
+	syncServiceMesh                                     = sync.RWMutex{}                      //sync map variable access
+	HealthCheckPeriod                                   = 5                                   //default period of health checking
+	HealthCheckTimeout                                  = 3                                   //default timeout of health checking
+	LastTraceServiceAddress                             = sync.Map{}                          //record exited last service address from requester
+	receiveServiceMesh                                  = make(map[string]*ServiceHealthInfo) //receive service address
+	syncReceiverService                                 = sync.RWMutex{}                      //sync map variable receiveServiceMesh
+	ReceiverKeepTimer        int64                      = 30                                  //keep period to regard as health okay
+	MonitorServiceAddrChange func() map[string][]string                                       //monitor the config service address changed
+	MonitorServiceAddrPeriod = 15                                                             //monitor job period
+	lastServiceAddr          map[string][]string                                              //last service address
 
 	//go:embed keepalived_trace.html
 	keepalivedTraceFile embed.FS
 )
 
-func StartHealthChecking() {
-	if len(serviceHealthMesh) > 0 {
-		timer := time.NewTicker(time.Duration(HealthCheckPeriod) * time.Second)
+func MonitorServiceHealthConfigs() {
+	if MonitorServiceAddrChange != nil {
+		timer := time.NewTicker(time.Duration(MonitorServiceAddrPeriod) * time.Second)
 		defer timer.Stop()
 		for {
 			<-timer.C
-			_healthChecking(false)
+			_checkServiceHealthConfig()
 		}
 	}
 }
 
-func RegisterServiceHealth(serviceName string, serviceAddress []string) {
-	serviceHealthMesh[serviceName] = &ServiceHealthInfo{
-		ServiceName:  serviceName,
-		Address:      serviceAddress,
-		Health:       make(map[string]int),
-		CallCount:    make(map[string]uint64),
-		NextSequence: 0,
-		AvailableSeq: make(map[int]int),
-		ReceiveTime:  make(map[string]int64),
+func isServiceHealthConfigChanged(m map[string][]string) bool {
+	if lastServiceAddr == nil || len(lastServiceAddr) != len(m) {
+		return true
+	}
+	p := make(map[string]string)
+	for k, v := range lastServiceAddr {
+		sort.Strings(v)
+		p[k] = strings.Join(v, ",")
+		if _, ok := m[k]; !ok {
+			return true
+		}
+	}
+	for k, v := range m {
+		sort.Strings(v)
+		pv := p[k]
+		if pv != strings.Join(v, ",") {
+			return true
+		}
+	}
+	return false
+}
+
+func _checkServiceHealthConfig() {
+	m := MonitorServiceAddrChange()
+	if isServiceHealthConfigChanged(m) {
+		ChangeServiceHealth(m)
+		lastServiceAddr = m
+	}
+}
+
+func StartHealthChecking() {
+	timer := time.NewTicker(time.Duration(HealthCheckPeriod) * time.Second)
+	defer timer.Stop()
+	for {
+		if len(serviceHealthMesh) > 0 {
+			_healthChecking(false)
+		}
+		<-timer.C
+	}
+}
+
+func RegisterServiceHealth() {
+	lastServiceAddr = MonitorServiceAddrChange()
+	for serviceName, address := range lastServiceAddr {
+		serviceHealthMesh[serviceName] = &ServiceHealthInfo{
+			ServiceName:  serviceName,
+			Address:      address,
+			Health:       make(map[string]int),
+			CallCount:    make(map[string]uint64),
+			NextSequence: 0,
+			AvailableSeq: make(map[int]int),
+			ReceiveTime:  make(map[string]int64),
+		}
 	}
 }
 

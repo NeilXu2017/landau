@@ -134,10 +134,12 @@ func (c *LandauServer) Start() {
 			address := fmt.Sprintf("%s:%d", util.IPConvert(addr, util.IPV6Bracket), c.HTTPServicePort)
 			data.ServiceAddress = address
 			if c.CheckServiceHealth != nil {
-				serviceList := c.CheckServiceHealth()
-				for serviceName, address := range serviceList {
-					data.RegisterServiceHealth(serviceName, address)
+				if c.CheckServiceHealthPeriod > 0 {
+					data.MonitorServiceAddrPeriod = c.CheckServiceHealthPeriod
 				}
+				data.MonitorServiceAddrChange = c.CheckServiceHealth
+				data.RegisterServiceHealth()
+				go data.MonitorServiceHealthConfigs()
 				go data.StartHealthChecking()
 			}
 			log.Info("[HTTP] Listen address:%s", address)
