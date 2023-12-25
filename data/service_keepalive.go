@@ -333,7 +333,7 @@ func OutputKeepaliveStatics(c *gin.Context) {
 	c.Data(200, "text/html", []byte("nothing"))
 }
 
-func getServiceAddrByName(serviceName string) string {
+func GetServiceAddrByName(serviceName string) string {
 	addr, usingSequence := "", 0 //service address
 	syncServiceMesh.RLock()
 	if v, ok := serviceHealthMesh[serviceName]; ok {

@@ -385,7 +385,7 @@ func (c *_HttpCookieJar) Cookies(u *url.URL) []*http.Cookie {
 func (c *HTTPHelper) _prepareRequest() (string, string, io.Reader, string) {
 	reqURL, reqMethod, postBody, signature, debugSignatureStr := c.url, "", "", "", ""
 	if reqURL == "" && c.serviceName != "" {
-		reqURL = getServiceAddrByName(c.serviceName)
+		reqURL = GetServiceAddrByName(c.serviceName)
 	}
 	if c.publicKey != "" && c.privateKey != "" && c.requestParams != nil { //需要签名
 		c.requestParams[c.publicKeyParaName] = c.publicKey
