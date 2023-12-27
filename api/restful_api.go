@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"regexp"
 	"strings"
 	"time"
 
@@ -24,6 +25,7 @@ type (
 		_urls               []string
 		ID                  string
 		HttpCodeStatus      string
+		UrlRegex            *regexp.Regexp
 	}
 )
 
@@ -46,13 +48,17 @@ func AddRESTFulAPIHttpHandle(urlPath string, newRequesterParameter HTTPRequestPa
 
 func AddRESTFulAPIHttpHandle2(urlPath string, newRequesterParameter HTTPRequestParameter, handleFunc HTTPHandleFunc, httpCodeFieldName string) {
 	urls, id := strings.Split(urlPath, "/"), ""
+	var keyUrl []string
 	for _, u := range urls {
 		if strings.Index(u, ":") == 0 {
 			id = strings.Replace(u, ":", "", 1)
-			break
+			keyUrl = append(keyUrl, ".*")
+		} else {
+			keyUrl = append(keyUrl, u)
 		}
 	}
-	restFulHttpEntry[urlPath] = _RESTFulApiEntry{Url: urlPath, NewRequestParameter: newRequesterParameter, HttpHandle: handleFunc, _urls: urls, ID: id, HttpCodeStatus: httpCodeFieldName}
+	matchedUrl := fmt.Sprintf("/%s", strings.Join(keyUrl, "/"))
+	restFulHttpEntry[urlPath] = _RESTFulApiEntry{Url: urlPath, NewRequestParameter: newRequesterParameter, HttpHandle: handleFunc, _urls: urls, ID: id, HttpCodeStatus: httpCodeFieldName, UrlRegex: regexp.MustCompile(matchedUrl)}
 }
 
 func SetDefaultRestfulBindError(replaced bool, replaceResponse interface{}) {
@@ -63,16 +69,18 @@ func SetDefaultRestfulBindError(replaced bool, replaceResponse interface{}) {
 func isExistRESTFul(urlPath string) (*_RESTFulApiEntry, bool) {
 	requestURL := strings.Split(urlPath, "/")
 	for _, a := range restFulHttpEntry {
-		if len(requestURL) == len(a._urls) {
-			isMatched := true
-			for i, j := 0, len(requestURL); i < j; i++ {
-				if requestURL[i] != a._urls[i] && strings.Index(a._urls[i], ":") != 0 {
-					isMatched = false
-					break
+		if a.UrlRegex.MatchString(urlPath) {
+			if len(requestURL) == len(a._urls) {
+				isMatched := true
+				for i, j := 0, len(requestURL); i < j; i++ {
+					if requestURL[i] != a._urls[i] && strings.Index(a._urls[i], ":") != 0 {
+						isMatched = false
+						break
+					}
 				}
-			}
-			if isMatched {
-				return &a, true
+				if isMatched {
+					return &a, true
+				}
 			}
 		}
 	}
