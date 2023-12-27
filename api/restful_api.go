@@ -52,12 +52,19 @@ func AddRESTFulAPIHttpHandle2(urlPath string, newRequesterParameter HTTPRequestP
 	for _, u := range urls {
 		if strings.Index(u, ":") == 0 {
 			id = strings.Replace(u, ":", "", 1)
-			keyUrl = append(keyUrl, ".*")
+			keyUrl = append(keyUrl, "[^/]*")
 		} else {
 			keyUrl = append(keyUrl, u)
 		}
 	}
-	restFulHttpEntry[urlPath] = _RESTFulApiEntry{Url: urlPath, NewRequestParameter: newRequesterParameter, HttpHandle: handleFunc, _urls: urls, ID: id, HttpCodeStatus: httpCodeFieldName, UrlRegex: regexp.MustCompile(fmt.Sprintf("^%s$", strings.Join(keyUrl, "/")))}
+	restFulHttpEntry[urlPath] = _RESTFulApiEntry{
+		Url:                 urlPath,
+		NewRequestParameter: newRequesterParameter,
+		HttpHandle:          handleFunc,
+		_urls:               urls,
+		ID:                  id,
+		HttpCodeStatus:      httpCodeFieldName,
+		UrlRegex:            regexp.MustCompile(fmt.Sprintf("^%s$", strings.Join(keyUrl, "/")))}
 }
 
 func SetDefaultRestfulBindError(replaced bool, replaceResponse interface{}) {
