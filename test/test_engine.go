@@ -224,6 +224,45 @@ func personHandle(_ *gin.Context, param interface{}) (interface{}, string) {
 	return success, p.String()
 }
 
+func restfulPostVpc(_ *gin.Context, param interface{}) (interface{}, string) {
+	p := param.(*personRequestParam)
+	success := gin.H{
+		"RetCode":        0,
+		"Request Method": p.Method,
+		"Handle":         "POST /v2/vpc",
+	}
+	return success, p.String()
+}
+func restfulDeleteVpc(_ *gin.Context, param interface{}) (interface{}, string) {
+	p := param.(*personRequestParam)
+	success := gin.H{
+		"RetCode":        0,
+		"Request Method": p.Method,
+		"Handle":         "DELETE /v2/vpc/:id",
+	}
+	return success, p.String()
+}
+
+func restfulPostSubnet(_ *gin.Context, param interface{}) (interface{}, string) {
+	p := param.(*personRequestParam)
+	success := gin.H{
+		"RetCode":        0,
+		"Request Method": p.Method,
+		"Handle":         "POST /v2/vpc/subnet",
+	}
+	return success, p.String()
+}
+
+func restfulDeleteSubnet(_ *gin.Context, param interface{}) (interface{}, string) {
+	p := param.(*personRequestParam)
+	success := gin.H{
+		"RetCode":        0,
+		"Request Method": p.Method,
+		"Handle":         "DELETE /v2/vpc/subnet/:id",
+	}
+	return success, p.String()
+}
+
 func registerHTTPHandles() {
 	api.SetDefaultRestfulBindError(true, BadRequest)
 	api.AddHTTPHandle2("/login", "Login", newLoginRequestParam, loginHandle)
@@ -234,6 +273,11 @@ func registerHTTPHandles() {
 	api.AddHTTPHandle2("/LearnCode", "LearnCode", newLearnCodeParam, doLearnCodeTask)
 	api.AddHTTPHandle2("/CallServiceByServiceName", "CallServiceByServiceName", newTestCheckKeepaliveRequest, doTestCheckKeepalive)
 	api.AddHTTPHandle2("/CheckServiceCall", "CheckServiceCall", newCallServiceNameRequest, doCallServiceName)
+
+	api.AddRESTFulAPIHttpHandle3("/v2/vpc", newPersonRequestParameter, restfulPostVpc, "HttpCode", "POST")
+	api.AddRESTFulAPIHttpHandle3("/v2/vpc/:id", newPersonRequestParameter, restfulDeleteVpc, "HttpCode", "DELETE")
+	api.AddRESTFulAPIHttpHandle3("/v2/vpc/subnet", newPersonRequestParameter, restfulPostSubnet, "HttpCode", "POST")
+	api.AddRESTFulAPIHttpHandle3("/v2/vpc/subnet/:id", newPersonRequestParameter, restfulDeleteSubnet, "HttpCode", "DELETE")
 }
 
 func registerHTTPCustomHandles(router *gin.Engine) {

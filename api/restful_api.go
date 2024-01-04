@@ -26,6 +26,7 @@ type (
 		ID                  string
 		HttpCodeStatus      string
 		UrlRegex            *regexp.Regexp
+		HttpMethod          string
 	}
 )
 
@@ -36,17 +37,13 @@ var (
 )
 
 func AddRESTFulAPIHttpHandle(urlPath string, newRequesterParameter HTTPRequestParameter, handleFunc HTTPHandleFunc) {
-	urls, id := strings.Split(urlPath, "/"), ""
-	for _, u := range urls {
-		if strings.Index(u, ":") == 0 {
-			id = strings.Replace(u, ":", "", 1)
-			break
-		}
-	}
-	restFulHttpEntry[urlPath] = _RESTFulApiEntry{Url: urlPath, NewRequestParameter: newRequesterParameter, HttpHandle: handleFunc, _urls: urls, ID: id}
+	AddRESTFulAPIHttpHandle3(urlPath, newRequesterParameter, handleFunc, "", "")
 }
 
 func AddRESTFulAPIHttpHandle2(urlPath string, newRequesterParameter HTTPRequestParameter, handleFunc HTTPHandleFunc, httpCodeFieldName string) {
+	AddRESTFulAPIHttpHandle3(urlPath, newRequesterParameter, handleFunc, httpCodeFieldName, "")
+}
+func AddRESTFulAPIHttpHandle3(urlPath string, newRequesterParameter HTTPRequestParameter, handleFunc HTTPHandleFunc, httpCodeFieldName string, httpMethod string) {
 	urls, id := strings.Split(urlPath, "/"), ""
 	var keyUrl []string
 	for _, u := range urls {
@@ -64,7 +61,9 @@ func AddRESTFulAPIHttpHandle2(urlPath string, newRequesterParameter HTTPRequestP
 		_urls:               urls,
 		ID:                  id,
 		HttpCodeStatus:      httpCodeFieldName,
-		UrlRegex:            regexp.MustCompile(fmt.Sprintf("^%s$", strings.Join(keyUrl, "/")))}
+		UrlRegex:            regexp.MustCompile(fmt.Sprintf("^%s$", strings.Join(keyUrl, "/"))),
+		HttpMethod:          strings.ToUpper(httpMethod),
+	}
 }
 
 func SetDefaultRestfulBindError(replaced bool, replaceResponse interface{}) {
@@ -72,21 +71,19 @@ func SetDefaultRestfulBindError(replaced bool, replaceResponse interface{}) {
 	defaultRestfulBindErrorResponse = replaceResponse
 }
 
-func isExistRESTFul(urlPath string) (*_RESTFulApiEntry, bool) {
+func isExistRESTFul(urlPath string, httpMethod string) (*_RESTFulApiEntry, bool) {
 	requestURL := strings.Split(urlPath, "/")
 	for _, a := range restFulHttpEntry {
-		if a.UrlRegex.MatchString(urlPath) {
-			if len(requestURL) == len(a._urls) {
-				isMatched := true
-				for i, j := 0, len(requestURL); i < j; i++ {
-					if requestURL[i] != a._urls[i] && strings.Index(a._urls[i], ":") != 0 {
-						isMatched = false
-						break
-					}
+		if (a.HttpMethod == "" || a.HttpMethod == httpMethod) && a.UrlRegex.MatchString(urlPath) && len(requestURL) == len(a._urls) {
+			isMatched := true
+			for i, j := 0, len(requestURL); i < j; i++ {
+				if requestURL[i] != a._urls[i] && strings.Index(a._urls[i], ":") != 0 {
+					isMatched = false
+					break
 				}
-				if isMatched {
-					return &a, true
-				}
+			}
+			if isMatched {
+				return &a, true
 			}
 		}
 	}
@@ -121,7 +118,7 @@ func restFullHttpHandleProxy(c *gin.Context) {
 	}
 	isBindingComplex := isPostBindingComplex(urlPath, "")
 	isPostMethod := c.Request.Method != "GET"
-	if a, existed := isExistRESTFul(urlPath); existed {
+	if a, existed := isExistRESTFul(urlPath, c.Request.Method); existed {
 		start := time.Now()
 		prepareRequestParam(c, isPostMethod)
 		var response interface{}
