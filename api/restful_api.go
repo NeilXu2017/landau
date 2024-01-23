@@ -73,6 +73,7 @@ func SetDefaultRestfulBindError(replaced bool, replaceResponse interface{}) {
 
 func isExistRESTFul(urlPath string, httpMethod string) (*_RESTFulApiEntry, bool) {
 	requestURL := strings.Split(urlPath, "/")
+	var matchedEntry []_RESTFulApiEntry
 	for _, a := range restFulHttpEntry {
 		if (a.HttpMethod == "" || a.HttpMethod == httpMethod) && a.UrlRegex.MatchString(urlPath) && len(requestURL) == len(a._urls) {
 			isMatched := true
@@ -83,9 +84,18 @@ func isExistRESTFul(urlPath string, httpMethod string) (*_RESTFulApiEntry, bool)
 				}
 			}
 			if isMatched {
-				return &a, true
+				if a.ID == "" { //no id has more high priority
+					return &a, true
+				}
+				matchedEntry = append(matchedEntry, a)
 			}
 		}
+	}
+	if len(matchedEntry) > 0 {
+		if len(matchedEntry) == 1 {
+			return &matchedEntry[0], true
+		}
+		log.Error2("[isExistRESTFul] requestUrl:%s have more than one matched,please check api entry:%v", urlPath, matchedEntry)
 	}
 	return nil, false
 }
