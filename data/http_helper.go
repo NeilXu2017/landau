@@ -402,6 +402,9 @@ func (c *HTTPHelper) _prepareRequest() (string, string, io.Reader, string) {
 	reqURL, reqMethod, postBody, signature, debugSignatureStr := c.url, "", "", "", ""
 	if reqURL == "" && c.serviceName != "" {
 		reqURL, c.isSecondaryAddress = GetServiceAddrByName(c.serviceName)
+		if !strings.Contains(reqURL, "http://") && !strings.Contains(reqURL, "https://") {
+			reqURL = fmt.Sprintf(`http://%s`, reqURL)
+		}
 	}
 	if c.publicKey != "" && c.privateKey != "" && c.requestParams != nil { //需要签名
 		c.requestParams[c.publicKeyParaName] = c.publicKey
