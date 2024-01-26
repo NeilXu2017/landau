@@ -134,6 +134,7 @@ func (c *LandauServer) Start() {
 			}
 			if addr != "" && addr != "0.0.0.0" && addr != "::" {
 				data.LocalPrimaryAddress = addr
+				log.Info("[LocalPrimaryAddress] %s", data.LocalPrimaryAddress)
 			}
 			address := fmt.Sprintf("%s:%d", util.IPConvert(addr, util.IPV6Bracket), c.HTTPServicePort)
 			data.ServiceAddress = address
@@ -143,6 +144,7 @@ func (c *LandauServer) Start() {
 				data.SecondaryServiceAddress = secondaryAddress
 				if c.SecondaryServiceAddress != "" && c.SecondaryServiceAddress != "0.0.0.0" && c.SecondaryServiceAddress != "::" {
 					data.LocalSecondaryAddress = c.SecondaryServiceAddress
+					log.Info("[LocalSecondaryAddress] %s", data.LocalSecondaryAddress)
 				}
 			}
 			if c.CheckServiceHealth != nil || c.CheckServiceHealth2 != nil {

@@ -405,6 +405,9 @@ func (c *HTTPHelper) _prepareRequest() (string, string, io.Reader, string) {
 		if !strings.Contains(reqURL, "http://") && !strings.Contains(reqURL, "https://") {
 			reqURL = fmt.Sprintf(`http://%s`, reqURL)
 		}
+		if c.isSecondaryAddress {
+			log.Info2(c.logger, "[Service-Secondary-Address] serviceName=%s reqURL=%s secondary source ip:%s", c.serviceName, reqURL, LocalSecondaryAddress)
+		}
 	}
 	if c.publicKey != "" && c.privateKey != "" && c.requestParams != nil { //需要签名
 		c.requestParams[c.publicKeyParaName] = c.publicKey
@@ -482,6 +485,7 @@ func (c *HTTPHelper) Call() (string, error) {
 		var localAddr *net.TCPAddr
 		if c.isSecondaryAddress {
 			localAddr = &net.TCPAddr{IP: net.ParseIP(LocalSecondaryAddress)}
+			log.Info2(c.logger, "[LocalAddr] TCPAddr:%v LocalSecondaryAddress:%s", *localAddr, LocalSecondaryAddress)
 		} else {
 			localAddr = &net.TCPAddr{IP: net.ParseIP(LocalPrimaryAddress)}
 		}
