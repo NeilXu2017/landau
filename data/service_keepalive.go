@@ -306,9 +306,13 @@ func DoHealthCheck(_ *gin.Context, param interface{}) (interface{}, string) {
 	req := param.(*_HealthCheckRequest)
 	if req.Checker != "" && req.CheckerAddress != "" {
 		if req.PrimaryAddress != "" && req.SecondaryAddress != "" && req.PrimaryAddress != req.SecondaryAddress {
+			httpPrimary := fmt.Sprintf(`http://%s`, req.PrimaryAddress)
+			httpSecondary := fmt.Sprintf(`http://%s`, req.SecondaryAddress)
 			syncMeshPrimary.Lock()
 			ServiceMeshPrimary2Secondary[req.PrimaryAddress] = req.SecondaryAddress
 			ServiceMeshSecondary2Primary[req.SecondaryAddress] = req.PrimaryAddress
+			ServiceMeshPrimary2Secondary[httpPrimary] = httpSecondary
+			ServiceMeshSecondary2Primary[httpSecondary] = httpPrimary
 			syncMeshPrimary.Unlock()
 		}
 		if req.NotifyShutdown {
