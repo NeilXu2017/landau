@@ -151,6 +151,8 @@ func loginHandle(c *gin.Context, param interface{}) (interface{}, string) {
 
 func randHandle(_ *gin.Context, param interface{}) (interface{}, string) {
 	request := param.(*randRequestParam)
+	m := make(map[string]interface{})
+	data.CallHTTPService2("http://10.64.205.36:9690/get_region_service_info", request, m)
 	success := gin.H{
 		"RetCode": 0,
 		"Message": `rand success can optionally supply the name of a 可以有选kě yǐ择地提供自 custom dictionary and a Boolean value indicating whether you want to ignore case.

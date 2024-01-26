@@ -61,9 +61,6 @@ type (
 		cookies []*http.Cookie
 		url     *url.URL
 	}
-	NetLocalAddr struct {
-		LocalAddress string
-	}
 )
 
 const (
@@ -459,21 +456,6 @@ func (c *HTTPHelper) _prepareRequest() (string, string, io.Reader, string) {
 	return reqURL, reqMethod, strings.NewReader(postBody), requestLoggerMsg
 }
 
-func (c NetLocalAddr) Network() string {
-	return "tcp"
-}
-func (c NetLocalAddr) String() string {
-	if strings.Contains(c.LocalAddress, ":") {
-		if strings.Contains(c.LocalAddress, "]") {
-			return fmt.Sprintf("%s:0", c.LocalAddress)
-		} else {
-			return fmt.Sprintf("[%s]:0", c.LocalAddress)
-		}
-	} else {
-		return fmt.Sprintf("%s:0", c.LocalAddress)
-	}
-}
-
 // Call 调用 HTTP 服务
 func (c *HTTPHelper) Call() (string, error) {
 	start := time.Now()
@@ -494,11 +476,11 @@ func (c *HTTPHelper) Call() (string, error) {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 	if !c.disableAssignSourceIp && (LocalPrimaryAddress != "" || LocalSecondaryAddress != "") {
-		var localAddr net.Addr
+		var localAddr *net.TCPAddr
 		if c.isSecondaryAddress {
-			localAddr = &NetLocalAddr{LocalAddress: LocalSecondaryAddress}
+			localAddr = &net.TCPAddr{IP: net.ParseIP(LocalSecondaryAddress)}
 		} else {
-			localAddr = &NetLocalAddr{LocalAddress: LocalPrimaryAddress}
+			localAddr = &net.TCPAddr{IP: net.ParseIP(LocalPrimaryAddress)}
 		}
 		transport.DialContext = (&net.Dialer{
 			Timeout:   30 * time.Second,
