@@ -322,7 +322,7 @@ func DoHealthCheck(_ *gin.Context, param interface{}) (interface{}, string) {
 
 func outputServiceAddress(addr string) (string, bool) {
 	outputAddr, haveSecondaryAddr := addr, false
-	syncMeshPrimary.RUnlock()
+	syncMeshPrimary.RLock()
 	if v, ok := ServiceMeshPrimary2Secondary[addr]; ok {
 		outputAddr = fmt.Sprintf(`%s <label style="color:red">%s</label>`, addr, v)
 		haveSecondaryAddr = true
