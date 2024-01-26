@@ -151,6 +151,7 @@ func (c *LandauServer) Start() {
 				if c.CheckServiceHealthPeriod > 0 {
 					data.MonitorServiceAddrPeriod = c.CheckServiceHealthPeriod
 				}
+				data.DisableAssignSourceIp = c.DisableCheckServiceHealthSourceIp
 				data.MonitorServiceAddrChange2 = c.CheckServiceHealth2
 				data.MonitorServiceAddrChange = c.CheckServiceHealth
 				data.RegisterServiceHealth()

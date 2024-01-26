@@ -91,6 +91,7 @@ var (
 	ServiceMeshPrimary2Secondary = make(map[string]string)                                                             //other service secondary address key: primary address  value: secondary address
 	ServiceMeshSecondary2Primary = make(map[string]string)                                                             //other service secondary address key:secondary address value: primary address
 	syncMeshPrimary              = sync.RWMutex{}                                                                      //sync map
+	DisableAssignSourceIp        bool                                                                                  //disable source ip
 
 	//go:embed keepalived_trace.html
 	keepalivedTraceFile embed.FS
@@ -574,7 +575,8 @@ func _healthChecking(notifyShutdown bool) {
 		defer wg.Done()
 		req := _HealthCheckRequest{Action: "ServiceHealthCheck", Service: name, CheckTime: checkTime, Checker: ServiceName, CheckerAddress: ServiceAddress, NotifyShutdown: notifyShutdown, PrimaryAddress: ServiceAddress, SecondaryAddress: SecondaryServiceAddress}
 		rsp, healthStatus := &_HealthCheckResponse{}, 0
-		httpHelper, _ := NewHTTPHelper(SetHTTPUrl(fmt.Sprintf("%s/ServiceHealthCheck", addr)), SetHTTPTimeout(HealthCheckTimeout), SetHTTPRequestRawObject(req), SetHTTPLogCategory("health_checker"))
+		httpHelper, _ := NewHTTPHelper(SetHTTPUrl(fmt.Sprintf("%s/ServiceHealthCheck", addr)), SetHTTPTimeout(HealthCheckTimeout),
+			SetHTTPRequestRawObject(req), SetHTTPLogCategory("health_checker"), SetHTTPDisableAssignSourceIp(DisableAssignSourceIp))
 		if err := httpHelper.Call2(rsp); err == nil && rsp.RetCode == 0 && rsp.HealthStatus == 1 {
 			healthStatus = 1
 		}
@@ -587,8 +589,9 @@ func _healthChecking(notifyShutdown bool) {
 			}
 			syncMeshPrimary.RUnlock()
 			if secondaryAddress != "" {
-				httpHelper, _ := NewHTTPHelper(SetHTTPUrl(fmt.Sprintf("%s/ServiceHealthCheck", secondaryAddress)), SetHTTPTimeout(HealthCheckTimeout), SetHTTPRequestRawObject(req), SetHTTPLogCategory("health_checker"))
-				if err := httpHelper.Call2(rsp); err == nil && rsp.RetCode == 0 && rsp.HealthStatus == 1 {
+				secHttpHelper, _ := NewHTTPHelper(SetHTTPUrl(fmt.Sprintf("%s/ServiceHealthCheck", secondaryAddress)), SetHTTPTimeout(HealthCheckTimeout),
+					SetHTTPRequestRawObject(req), SetHTTPLogCategory("health_checker"), SetHTTPDisableAssignSourceIp(DisableAssignSourceIp))
+				if err := secHttpHelper.Call2(rsp); err == nil && rsp.RetCode == 0 && rsp.HealthStatus == 1 {
 					_updateServerHealthStatus(name, secondaryAddress, 1)
 				}
 			}
