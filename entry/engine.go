@@ -32,6 +32,7 @@ import (
 
 var (
 	srv            *http.Server                                        //saved to be used in graceful stopping
+	secondSrv      *http.Server                                        //saved to be used in graceful stopping
 	grpcServer     *grpc.Server                                        //saved to be used in graceful stopping
 	reload         = flag.Bool("reload", false, "Signal reload event") //reload cmd
 	reloadCallback func()                                              //reload 回调
@@ -131,19 +132,42 @@ func (c *LandauServer) Start() {
 			if c.EnablePrometheusMetric {
 				go prometheus.StartApiMetric()
 			}
+			if addr != "" && addr != "0.0.0.0" && addr != "::" {
+				data.LocalPrimaryAddress = addr
+			}
 			address := fmt.Sprintf("%s:%d", util.IPConvert(addr, util.IPV6Bracket), c.HTTPServicePort)
 			data.ServiceAddress = address
-			if c.CheckServiceHealth != nil {
+			secondaryAddress := ""
+			if c.SecondaryServiceAddress != "" {
+				secondaryAddress = fmt.Sprintf("%s:%d", util.IPConvert(c.SecondaryServiceAddress, util.IPV6Bracket), c.HTTPServicePort)
+				data.SecondaryServiceAddress = secondaryAddress
+				if c.SecondaryServiceAddress != "" && c.SecondaryServiceAddress != "0.0.0.0" && c.SecondaryServiceAddress != "::" {
+					data.LocalSecondaryAddress = c.SecondaryServiceAddress
+				}
+			}
+			if c.CheckServiceHealth != nil || c.CheckServiceHealth2 != nil {
 				if c.CheckServiceHealthPeriod > 0 {
 					data.MonitorServiceAddrPeriod = c.CheckServiceHealthPeriod
 				}
+				data.MonitorServiceAddrChange2 = c.CheckServiceHealth2
 				data.MonitorServiceAddrChange = c.CheckServiceHealth
 				data.RegisterServiceHealth()
 				go data.MonitorServiceHealthConfigs()
 				go data.StartHealthChecking()
 			}
 			log.Info("[HTTP] Listen address:%s", address)
+			if secondaryAddress != "" {
+				log.Info("[HTTP] Listen secondary address:%s", secondaryAddress)
+			}
 			if c.DisableGracefulStopping {
+				if secondaryAddress != "" {
+					secondSrv = &http.Server{Addr: secondaryAddress, Handler: c.ginRouter}
+					go func() {
+						if err := secondSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+							sysLog.Fatalf("[HTTP] Start gin server error,err:%v", err)
+						}
+					}()
+				}
 				if err := c.ginRouter.Run(address); err != nil {
 					sysLog.Fatalf("[HTTP] Start gin server error,err:%v", err)
 				}
@@ -154,6 +178,14 @@ func (c *LandauServer) Start() {
 						sysLog.Fatalf("[HTTP] Start gin server error,err:%v", err)
 					}
 				}()
+				if secondaryAddress != "" {
+					secondSrv = &http.Server{Addr: secondaryAddress, Handler: c.ginRouter}
+					go func() {
+						if err := secondSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+							sysLog.Fatalf("[HTTP] Start gin server error,err:%v", err)
+						}
+					}()
+				}
 				gracefulStop(c.GracefulTimeout)
 			}
 		}
@@ -251,6 +283,16 @@ func gracefulStop(gracefulTimeout uint64) {
 				}
 			}
 		}
+		secondHttpSrvShutdown := func() {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(waitMaxSecond))
+			defer cancel()
+			if secondSrv != nil {
+				if err := secondSrv.Shutdown(ctx); err != nil {
+					sysLog.Fatalf("[HTTP] Server Shutdown error,err:%v", err)
+				}
+			}
+		}
 		cronJobShutdown := func() {
 			defer wg.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(waitMaxSecond))
@@ -265,8 +307,9 @@ func gracefulStop(gracefulTimeout uint64) {
 				grpcServer.GracefulStop()
 			}
 		}
-		wg.Add(3)
+		wg.Add(4)
 		go httpSrvShutdown()
+		go secondHttpSrvShutdown()
 		go cronJobShutdown()
 		go grpcSvrShutdown()
 		data.NotifyCheckerShutdown()

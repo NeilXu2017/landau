@@ -16,21 +16,24 @@ import (
 
 type (
 	ServiceHealthInfo struct {
-		ServiceName  string            //service identity
-		Address      []string          //service address
-		Health       map[string]int    //key: address value: 1 ok, 0 check failure
-		CallCount    map[string]uint64 //key: address value: call count tick
-		NextSequence int               //next using index of address, when calling,health check again
-		AvailableSeq map[int]int       //key: address index value: 1 for ready
-		ReceiveTime  map[string]int64  //key: address  value: timer
+		ServiceName       string            //service identity
+		Address           []string          //service address
+		Health            map[string]int    //key: address value: 1 ok, 0 check failure
+		HealthOnSecondary map[string]int    //health =1 using secondary address
+		CallCount         map[string]uint64 //key: address value: call count tick
+		NextSequence      int               //next using index of address, when calling,health check again
+		AvailableSeq      map[int]int       //key: address index value: 1 for ready
+		ReceiveTime       map[string]int64  //key: address  value: timer
 	}
 	_HealthCheckRequest struct {
-		Action         string //identity health check request: ServiceHealthCheck
-		Service        string //identity checking server
-		CheckTime      int64  //request time,unix time
-		Checker        string //checking source
-		CheckerAddress string //checking source service address
-		NotifyShutdown bool   //notify shutdown message, receiver should mark the address unreachable.
+		Action           string //identity health check request: ServiceHealthCheck
+		Service          string //identity checking server
+		CheckTime        int64  //request time,unix time
+		Checker          string //checking source
+		CheckerAddress   string //checking source service address
+		PrimaryAddress   string //service primary address
+		SecondaryAddress string //service secondary address
+		NotifyShutdown   bool   //notify shutdown message, receiver should mark the address unreachable.
 	}
 	_HealthCheckResponse struct {
 		RetCode      int    //response code should be 0
@@ -68,28 +71,33 @@ type (
 )
 
 var (
-	ServiceName                                         = ""                                  //identity of this service
-	ServiceAddress                                      = ""                                  //address of this service
-	ServiceNameHeadTag                                  = "Landau-Service"                    //http head tag name of service id
-	ServiceAddressHeadTag                               = "Landau-Service-Addr"               //http head name of service address
-	serviceHealthMesh                                   = make(map[string]*ServiceHealthInfo) //key: service name value: health info
-	syncServiceMesh                                     = sync.RWMutex{}                      //sync map variable access
-	HealthCheckPeriod                                   = 5                                   //default period of health checking
-	HealthCheckTimeout                                  = 3                                   //default timeout of health checking
-	LastTraceServiceAddress                             = sync.Map{}                          //record exited last service address from requester
-	receiveServiceMesh                                  = make(map[string]*ServiceHealthInfo) //receive service address
-	syncReceiverService                                 = sync.RWMutex{}                      //sync map variable receiveServiceMesh
-	ReceiverKeepTimer        int64                      = 30                                  //keep period to regard as health okay
-	MonitorServiceAddrChange func() map[string][]string                                       //monitor the config service address changed
-	MonitorServiceAddrPeriod = 15                                                             //monitor job period
-	lastServiceAddr          map[string][]string                                              //last service address
+	ServiceName                                                                  = ""                                  //identity of this service
+	ServiceAddress                                                               = ""                                  //address of this service
+	SecondaryServiceAddress                                                      = ""                                  //secondary address of this service
+	ServiceNameHeadTag                                                           = "Landau-Service"                    //http head tag name of service id
+	ServiceAddressHeadTag                                                        = "Landau-Service-Addr"               //http head name of service address
+	serviceHealthMesh                                                            = make(map[string]*ServiceHealthInfo) //key: service name value: health info
+	syncServiceMesh                                                              = sync.RWMutex{}                      //sync map variable access
+	HealthCheckPeriod                                                            = 5                                   //default period of health checking
+	HealthCheckTimeout                                                           = 3                                   //default timeout of health checking
+	LastTraceServiceAddress                                                      = sync.Map{}                          //record exited last service address from requester
+	receiveServiceMesh                                                           = make(map[string]*ServiceHealthInfo) //receive service address
+	syncReceiverService                                                          = sync.RWMutex{}                      //sync map variable receiveServiceMesh
+	ReceiverKeepTimer            int64                                           = 30                                  //keep period to regard as health okay
+	MonitorServiceAddrChange     func() map[string][]string                                                            //monitor the config service address changed
+	MonitorServiceAddrChange2    func() (map[string][]string, map[string]string)                                       //monitor the config service address changed, secondary service map
+	MonitorServiceAddrPeriod     = 15                                                                                  //monitor job period
+	lastServiceAddr              map[string][]string                                                                   //last service address
+	ServiceMeshPrimary2Secondary = make(map[string]string)                                                             //other service secondary address key: primary address  value: secondary address
+	ServiceMeshSecondary2Primary = make(map[string]string)                                                             //other service secondary address key:secondary address value: primary address
+	syncMeshPrimary              = sync.RWMutex{}                                                                      //sync map
 
 	//go:embed keepalived_trace.html
 	keepalivedTraceFile embed.FS
 )
 
 func MonitorServiceHealthConfigs() {
-	if MonitorServiceAddrChange != nil {
+	if MonitorServiceAddrChange != nil || MonitorServiceAddrChange2 != nil {
 		timer := time.NewTicker(time.Duration(MonitorServiceAddrPeriod) * time.Second)
 		defer timer.Stop()
 		for {
@@ -122,10 +130,25 @@ func isServiceHealthConfigChanged(m map[string][]string) bool {
 }
 
 func _checkServiceHealthConfig() {
-	m := MonitorServiceAddrChange()
-	if isServiceHealthConfigChanged(m) {
-		ChangeServiceHealth(m)
-		lastServiceAddr = m
+	if MonitorServiceAddrChange2 != nil {
+		m, secondary := MonitorServiceAddrChange2()
+		syncMeshPrimary.Lock()
+		ServiceMeshPrimary2Secondary = secondary
+		ServiceMeshSecondary2Primary = make(map[string]string, 0)
+		for k, v := range secondary {
+			ServiceMeshSecondary2Primary[v] = k
+		}
+		syncMeshPrimary.Unlock()
+		if isServiceHealthConfigChanged(m) {
+			ChangeServiceHealth(m)
+			lastServiceAddr = m
+		}
+	} else {
+		m := MonitorServiceAddrChange()
+		if isServiceHealthConfigChanged(m) {
+			ChangeServiceHealth(m)
+			lastServiceAddr = m
+		}
 	}
 }
 
@@ -141,16 +164,27 @@ func StartHealthChecking() {
 }
 
 func RegisterServiceHealth() {
-	lastServiceAddr = MonitorServiceAddrChange()
+	if MonitorServiceAddrChange2 != nil {
+		syncMeshPrimary.Lock()
+		lastServiceAddr, ServiceMeshPrimary2Secondary = MonitorServiceAddrChange2()
+		ServiceMeshSecondary2Primary = make(map[string]string, 0)
+		for k, v := range ServiceMeshPrimary2Secondary {
+			ServiceMeshSecondary2Primary[v] = k
+		}
+		syncMeshPrimary.Unlock()
+	} else {
+		lastServiceAddr = MonitorServiceAddrChange()
+	}
 	for serviceName, address := range lastServiceAddr {
 		serviceHealthMesh[serviceName] = &ServiceHealthInfo{
-			ServiceName:  serviceName,
-			Address:      address,
-			Health:       make(map[string]int),
-			CallCount:    make(map[string]uint64),
-			NextSequence: 0,
-			AvailableSeq: make(map[int]int),
-			ReceiveTime:  make(map[string]int64),
+			ServiceName:       serviceName,
+			Address:           address,
+			Health:            make(map[string]int),
+			HealthOnSecondary: make(map[string]int),
+			CallCount:         make(map[string]uint64),
+			NextSequence:      0,
+			AvailableSeq:      make(map[int]int),
+			ReceiveTime:       make(map[string]int64),
 		}
 	}
 }
@@ -176,13 +210,14 @@ func ChangeServiceHealth(services map[string][]string) {
 			}
 		} else {
 			serviceHealthMesh[serviceName] = &ServiceHealthInfo{
-				ServiceName:  serviceName,
-				Address:      serviceAddress,
-				Health:       make(map[string]int),
-				CallCount:    make(map[string]uint64),
-				NextSequence: 0,
-				AvailableSeq: make(map[int]int),
-				ReceiveTime:  make(map[string]int64),
+				ServiceName:       serviceName,
+				Address:           serviceAddress,
+				Health:            make(map[string]int),
+				HealthOnSecondary: make(map[string]int),
+				CallCount:         make(map[string]uint64),
+				NextSequence:      0,
+				AvailableSeq:      make(map[int]int),
+				ReceiveTime:       make(map[string]int64),
 			}
 		}
 	}
@@ -190,8 +225,14 @@ func ChangeServiceHealth(services map[string][]string) {
 
 func RemoveReceiveService(serviceName, addr string) {
 	syncReceiverService.Lock()
+	primaryAddr := addr
+	syncMeshPrimary.RLock()
+	if v, ok := ServiceMeshSecondary2Primary[addr]; ok {
+		primaryAddr = v
+	}
+	syncMeshPrimary.RUnlock()
 	if c, ok := receiveServiceMesh[serviceName]; ok {
-		c.ReceiveTime[addr] = 0
+		c.ReceiveTime[primaryAddr] = 0
 		addrNotFound := true
 		for _, d := range c.Address {
 			if d == addr {
@@ -200,7 +241,7 @@ func RemoveReceiveService(serviceName, addr string) {
 			}
 		}
 		if addrNotFound {
-			c.Address = append(c.Address, addr)
+			c.Address = append(c.Address, primaryAddr)
 		}
 	}
 	syncReceiverService.Unlock()
@@ -209,28 +250,43 @@ func RemoveReceiveService(serviceName, addr string) {
 func RegisterReceiveService(serviceName, addr string) {
 	t := time.Now().Unix()
 	syncReceiverService.Lock()
+	primaryAddr := addr
+	syncMeshPrimary.RLock()
+	if v, ok := ServiceMeshSecondary2Primary[addr]; ok {
+		primaryAddr = v
+	}
+	syncMeshPrimary.RUnlock()
 	if c, ok := receiveServiceMesh[serviceName]; ok {
-		c.ReceiveTime[addr] = t
+		c.ReceiveTime[primaryAddr] = t
+		if primaryAddr != addr {
+			c.HealthOnSecondary[primaryAddr] = 1
+		} else {
+			delete(c.HealthOnSecondary, primaryAddr)
+		}
 		addrNotFound := true
 		for _, d := range c.Address {
-			if d == addr {
+			if d == primaryAddr {
 				addrNotFound = false
 				break
 			}
 		}
 		if addrNotFound {
-			c.Address = append(c.Address, addr)
+			c.Address = append(c.Address, primaryAddr)
 		}
 	} else {
 		v := &ServiceHealthInfo{
-			ServiceName:  serviceName,
-			ReceiveTime:  make(map[string]int64),
-			Address:      []string{addr},
-			CallCount:    make(map[string]uint64),
-			Health:       make(map[string]int),
-			AvailableSeq: make(map[int]int),
+			ServiceName:       serviceName,
+			ReceiveTime:       make(map[string]int64),
+			Address:           []string{primaryAddr},
+			CallCount:         make(map[string]uint64),
+			Health:            make(map[string]int),
+			HealthOnSecondary: make(map[string]int),
+			AvailableSeq:      make(map[int]int),
 		}
-		v.ReceiveTime[addr] = t
+		v.ReceiveTime[primaryAddr] = t
+		if primaryAddr != addr {
+			v.HealthOnSecondary[addr] = 1
+		}
 		receiveServiceMesh[serviceName] = v
 	}
 	syncReceiverService.Unlock()
@@ -248,6 +304,12 @@ func (c _HealthCheckRequest) String() string {
 func DoHealthCheck(_ *gin.Context, param interface{}) (interface{}, string) {
 	req := param.(*_HealthCheckRequest)
 	if req.Checker != "" && req.CheckerAddress != "" {
+		if req.PrimaryAddress != "" && req.SecondaryAddress != "" && req.PrimaryAddress != req.SecondaryAddress {
+			syncMeshPrimary.Lock()
+			ServiceMeshPrimary2Secondary[req.PrimaryAddress] = req.SecondaryAddress
+			ServiceMeshSecondary2Primary[req.SecondaryAddress] = req.PrimaryAddress
+			syncMeshPrimary.Unlock()
+		}
 		if req.NotifyShutdown {
 			RemoveReceiveService(req.Checker, req.CheckerAddress)
 		} else {
@@ -258,6 +320,16 @@ func DoHealthCheck(_ *gin.Context, param interface{}) (interface{}, string) {
 	return rsp, req.String()
 }
 
+func outputServiceAddress(addr string) (string, bool) {
+	outputAddr, haveSecondaryAddr := addr, false
+	syncMeshPrimary.RUnlock()
+	if v, ok := ServiceMeshPrimary2Secondary[addr]; ok {
+		outputAddr = fmt.Sprintf(`%s <label style="color:red">%s</label>`, addr, v)
+		haveSecondaryAddr = true
+	}
+	syncMeshPrimary.RUnlock()
+	return outputAddr, haveSecondaryAddr
+}
 func OutputKeepaliveStatics(c *gin.Context) {
 	m := _KeepalivedTraceModel{
 		QueryTime:             time.Now().Format("2006-01-02 15:04:05"),
@@ -269,22 +341,43 @@ func OutputKeepaliveStatics(c *gin.Context) {
 		HealthCheckTimeout:    HealthCheckTimeout,
 		ReceiverKeepTimer:     ReceiverKeepTimer,
 	}
+	if SecondaryServiceAddress != "" {
+		m.ServiceAddress = fmt.Sprintf(`%s <label style="color:red">%s</label>`, ServiceAddress, SecondaryServiceAddress)
+	}
 	syncServiceMesh.RLock()
 	defer syncServiceMesh.RUnlock()
 	for name, d := range serviceHealthMesh {
+		addr, haveSecondaryAddr := outputServiceAddress(d.Address[0])
+		h := strconv.Itoa(d.Health[d.Address[0]])
+		if haveSecondaryAddr {
+			if _, ok := d.HealthOnSecondary[d.Address[0]]; ok {
+				if d.Health[d.Address[0]] == 1 {
+					h = `<label style="color:red">1</label>`
+				}
+			}
+		}
 		v := _KeepalivedServiceTraceInfo{
 			ServiceName:      name,
 			AddressNum:       len(d.Address),
-			FirstAddress:     d.Address[0],
-			FirstHealth:      strconv.Itoa(d.Health[d.Address[0]]),
+			FirstAddress:     addr,
+			FirstHealth:      h,
 			FirstCallCount:   d.CallCount[d.Address[0]],
 			FirstReceiveTime: time.Unix(d.ReceiveTime[d.Address[0]], 0).Format("2006-01-02 15:04:05"),
 		}
 		for i := 1; i < len(d.Address); i++ {
 			address := d.Address[i]
+			addr, haveSecondaryAddr := outputServiceAddress(address)
+			h := strconv.Itoa(d.Health[address])
+			if haveSecondaryAddr {
+				if _, ok := d.HealthOnSecondary[d.Address[i]]; ok {
+					if d.Health[d.Address[i]] == 1 {
+						h = `<label style="color:red">1</label>`
+					}
+				}
+			}
 			o := _KeepalivedServiceRowShowInfo{
-				Address:     address,
-				Health:      strconv.Itoa(d.Health[address]),
+				Address:     addr,
+				Health:      h,
 				CallCount:   d.CallCount[address],
 				ReceiveTime: time.Unix(d.ReceiveTime[address], 0).Format("2006-01-02 15:04:05"),
 			}
@@ -333,13 +426,21 @@ func OutputKeepaliveStatics(c *gin.Context) {
 	c.Data(200, "text/html", []byte("nothing"))
 }
 
-func GetServiceAddrByName(serviceName string) string {
-	addr, usingSequence := "", 0 //service address
+func GetServiceAddrByName(serviceName string) (string, bool) {
+	addr, usingSequence, isPrimary := "", 0, true //service address
 	syncServiceMesh.RLock()
 	if v, ok := serviceHealthMesh[serviceName]; ok {
 		if len(v.Address) > 0 {
 			if len(v.AvailableSeq) == 0 || len(v.Address) == 1 {
 				addr = v.Address[0]
+				if _, ok := v.HealthOnSecondary[addr]; ok {
+					syncMeshPrimary.RLock()
+					if secondaryAddr := ServiceMeshPrimary2Secondary[addr]; secondaryAddr != "" {
+						addr = secondaryAddr
+						isPrimary = false
+					}
+					syncMeshPrimary.RUnlock()
+				}
 			} else {
 				tryCount := len(v.Address)
 				usingSequence = v.NextSequence
@@ -357,6 +458,14 @@ func GetServiceAddrByName(serviceName string) string {
 						addr, usingSequence = v.Address[0], 0
 						break
 					}
+				}
+				if _, ok := v.HealthOnSecondary[addr]; ok {
+					syncMeshPrimary.RLock()
+					if secondaryAddr := ServiceMeshPrimary2Secondary[addr]; secondaryAddr != "" {
+						addr = secondaryAddr
+						isPrimary = false
+					}
+					syncMeshPrimary.RUnlock()
 				}
 			}
 		}
@@ -387,6 +496,14 @@ func GetServiceAddrByName(serviceName string) string {
 					addr = availableAddr[usingReceivedSeq]
 				}
 			}
+			if _, ok := v.HealthOnSecondary[addr]; ok {
+				syncMeshPrimary.RLock()
+				if secondaryAddr := ServiceMeshPrimary2Secondary[addr]; secondaryAddr != "" {
+					addr = secondaryAddr
+					isPrimary = false
+				}
+				syncMeshPrimary.RUnlock()
+			}
 		}
 		syncReceiverService.RUnlock()
 		if addr != "" {
@@ -403,7 +520,7 @@ func GetServiceAddrByName(serviceName string) string {
 	if addr != "" && !strings.Contains(addr, "http://") {
 		addr = fmt.Sprintf("http://%s", addr)
 	}
-	return addr
+	return addr, isPrimary
 }
 
 func (c *ServiceHealthInfo) Increment(serviceAddress string, usingSequence int) {
@@ -415,8 +532,21 @@ func _updateServerHealthStatus(serviceName, address string, healthStatus int) {
 	syncServiceMesh.Lock()
 	defer syncServiceMesh.Unlock()
 	if v, ok := serviceHealthMesh[serviceName]; ok {
-		v.Health[address] = healthStatus
-		v.ReceiveTime[address] = time.Now().Unix()
+		primaryAddr := address
+		syncMeshPrimary.RLock()
+		if v, ok := ServiceMeshSecondary2Primary[address]; ok {
+			primaryAddr = v
+		}
+		syncMeshPrimary.RUnlock()
+		v.Health[primaryAddr] = healthStatus
+		v.ReceiveTime[primaryAddr] = time.Now().Unix()
+		if primaryAddr == address {
+			if healthStatus == 1 {
+				delete(v.HealthOnSecondary, address)
+			}
+		} else {
+			v.HealthOnSecondary[address] = 1
+		}
 		for index, addr := range v.Address {
 			if addr == address {
 				if healthStatus == 1 {
@@ -442,13 +572,27 @@ func _healthChecking(notifyShutdown bool) {
 	wg, checkTime := sync.WaitGroup{}, time.Now().Unix()
 	check := func(addr, name string) {
 		defer wg.Done()
-		req := _HealthCheckRequest{Action: "ServiceHealthCheck", Service: name, CheckTime: checkTime, Checker: ServiceName, CheckerAddress: ServiceAddress, NotifyShutdown: notifyShutdown}
+		req := _HealthCheckRequest{Action: "ServiceHealthCheck", Service: name, CheckTime: checkTime, Checker: ServiceName, CheckerAddress: ServiceAddress, NotifyShutdown: notifyShutdown, PrimaryAddress: ServiceAddress, SecondaryAddress: SecondaryServiceAddress}
 		rsp, healthStatus := &_HealthCheckResponse{}, 0
 		httpHelper, _ := NewHTTPHelper(SetHTTPUrl(fmt.Sprintf("%s/ServiceHealthCheck", addr)), SetHTTPTimeout(HealthCheckTimeout), SetHTTPRequestRawObject(req), SetHTTPLogCategory("health_checker"))
 		if err := httpHelper.Call2(rsp); err == nil && rsp.RetCode == 0 && rsp.HealthStatus == 1 {
 			healthStatus = 1
 		}
 		_updateServerHealthStatus(name, addr, healthStatus)
+		if healthStatus == 0 { //check secondary address
+			secondaryAddress := ""
+			syncMeshPrimary.RLock()
+			if v, ok := ServiceMeshPrimary2Secondary[addr]; ok {
+				secondaryAddress = v
+			}
+			syncMeshPrimary.RUnlock()
+			if secondaryAddress != "" {
+				httpHelper, _ := NewHTTPHelper(SetHTTPUrl(fmt.Sprintf("%s/ServiceHealthCheck", secondaryAddress)), SetHTTPTimeout(HealthCheckTimeout), SetHTTPRequestRawObject(req), SetHTTPLogCategory("health_checker"))
+				if err := httpHelper.Call2(rsp); err == nil && rsp.RetCode == 0 && rsp.HealthStatus == 1 {
+					_updateServerHealthStatus(name, secondaryAddress, 1)
+				}
+			}
+		}
 	}
 	for addr, name := range services {
 		wg.Add(1)

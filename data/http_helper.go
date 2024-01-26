@@ -54,10 +54,15 @@ type (
 		debugResponseHeaderField   []string
 		insecureSkipVerify         bool
 		appendServiceId            bool //add head tag
+		isSecondaryAddress         bool
+		disableAssignSourceIp      bool //是否指定源IP
 	}
 	_HttpCookieJar struct {
 		cookies []*http.Cookie
 		url     *url.URL
+	}
+	NetLocalAddr struct {
+		LocalAddress string
 	}
 )
 
@@ -70,6 +75,11 @@ const (
 	HTTPPut HTTPMethod = "PUT"
 	//HTTPDelete DELETE 方法
 	HTTPDelete HTTPMethod = "DELETE"
+)
+
+var (
+	LocalPrimaryAddress   = ""
+	LocalSecondaryAddress = ""
 )
 
 // NewHTTPHelper 构造HTTPHelper实例
@@ -92,6 +102,8 @@ func NewHTTPHelper(options ...HTTPHelperOptionFunc) (*HTTPHelper, error) {
 		debugSignature:             false,
 		debugResponseHeaderField:   []string{},
 		appendServiceId:            true,
+		disableAssignSourceIp:      false,
+		isSecondaryAddress:         false,
 	}
 	for _, option := range options {
 		if err := option(c); err != nil {
@@ -165,6 +177,13 @@ func (c *HTTPHelper) defaultLogResponse(response interface{}) string {
 		shownLen = 64
 	}
 	return fmt.Sprintf("%s......%s", string(responseRune[0:shownLen]), string(responseRune[len(responseRune)-shownLen:]))
+}
+
+func SetHTTPDisableAssignSourceIp(disableAssignSourceIp bool) HTTPHelperOptionFunc {
+	return func(c *HTTPHelper) error {
+		c.disableAssignSourceIp = disableAssignSourceIp
+		return nil
+	}
 }
 
 // SetHTTPUrl 设置 HTTP 请求 url 地址
@@ -385,7 +404,7 @@ func (c *_HttpCookieJar) Cookies(u *url.URL) []*http.Cookie {
 func (c *HTTPHelper) _prepareRequest() (string, string, io.Reader, string) {
 	reqURL, reqMethod, postBody, signature, debugSignatureStr := c.url, "", "", "", ""
 	if reqURL == "" && c.serviceName != "" {
-		reqURL = GetServiceAddrByName(c.serviceName)
+		reqURL, c.isSecondaryAddress = GetServiceAddrByName(c.serviceName)
 	}
 	if c.publicKey != "" && c.privateKey != "" && c.requestParams != nil { //需要签名
 		c.requestParams[c.publicKeyParaName] = c.publicKey
@@ -440,31 +459,59 @@ func (c *HTTPHelper) _prepareRequest() (string, string, io.Reader, string) {
 	return reqURL, reqMethod, strings.NewReader(postBody), requestLoggerMsg
 }
 
+func (c NetLocalAddr) Network() string {
+	return "tcp"
+}
+func (c NetLocalAddr) String() string {
+	if strings.Contains(c.LocalAddress, ":") {
+		if strings.Contains(c.LocalAddress, "]") {
+			return fmt.Sprintf("%s:0", c.LocalAddress)
+		} else {
+			return fmt.Sprintf("[%s]:0", c.LocalAddress)
+		}
+	} else {
+		return fmt.Sprintf("%s:0", c.LocalAddress)
+	}
+}
+
 // Call 调用 HTTP 服务
 func (c *HTTPHelper) Call() (string, error) {
 	start := time.Now()
-	client := &http.Client{Timeout: time.Duration(c.timeout) * time.Second}
-	if c.insecureSkipVerify {
-		client.Transport = &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			DialContext: (&net.Dialer{
-				Timeout:   30 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-			ForceAttemptHTTP2:     true,
-			MaxIdleConns:          100,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-			TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
-		}
+	reqURL, reqMethod, bodyReader, requestLoggerMsg := c._prepareRequest()
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
 	}
+	if c.insecureSkipVerify {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+	if !c.disableAssignSourceIp && (LocalPrimaryAddress != "" || LocalSecondaryAddress != "") {
+		var localAddr net.Addr
+		if c.isSecondaryAddress {
+			localAddr = &NetLocalAddr{LocalAddress: LocalSecondaryAddress}
+		} else {
+			localAddr = &NetLocalAddr{LocalAddress: LocalPrimaryAddress}
+		}
+		transport.DialContext = (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+			LocalAddr: localAddr,
+		}).DialContext
+	}
+	client := &http.Client{Timeout: time.Duration(c.timeout) * time.Second, Transport: transport}
 	if c.delegatedHTTPRequest != nil {
 		jar := &_HttpCookieJar{}
 		jar.cookies = c.delegatedHTTPRequest.Cookies()
 		client.Jar = jar
 	}
-	reqURL, reqMethod, bodyReader, requestLoggerMsg := c._prepareRequest()
 	req, err := http.NewRequest(reqMethod, reqURL, bodyReader)
 	if err != nil {
 		log.Error2(c.logger, "[HTTP]\t[%s]\tURL:%s\t%s\tError:%v", time.Since(start), reqURL, requestLoggerMsg, err)
