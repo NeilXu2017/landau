@@ -484,11 +484,11 @@ func (c *HTTPHelper) Call() (string, error) {
 	if !c.disableAssignSourceIp && (LocalPrimaryAddress != "" || LocalSecondaryAddress != "") {
 		var localAddr *net.TCPAddr
 		if c.isSecondaryAddress {
-			localAddr = &net.TCPAddr{IP: net.ParseIP(LocalSecondaryAddress)}
-			log.Info2(c.logger, "[LocalAddr] TCPAddr:%v LocalSecondaryAddress:%s", *localAddr, LocalSecondaryAddress)
+			localAddr, _ = net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:0", LocalSecondaryAddress))
 		} else {
-			localAddr = &net.TCPAddr{IP: net.ParseIP(LocalPrimaryAddress)}
+			localAddr, _ = net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:0", LocalPrimaryAddress))
 		}
+		log.Info2(c.logger, "[LocalAddr] TCPAddr:%v Local Primary:%s Secondary:%s", *localAddr, LocalPrimaryAddress, LocalSecondaryAddress)
 		transport.DialContext = (&net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
