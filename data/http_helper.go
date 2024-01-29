@@ -54,7 +54,7 @@ type (
 		debugResponseHeaderField   []string
 		insecureSkipVerify         bool
 		appendServiceId            bool //add head tag
-		isSecondaryAddress         bool
+		isPrimaryAddress           bool
 		disableAssignSourceIp      bool //是否指定源IP
 	}
 	_HttpCookieJar struct {
@@ -100,7 +100,7 @@ func NewHTTPHelper(options ...HTTPHelperOptionFunc) (*HTTPHelper, error) {
 		debugResponseHeaderField:   []string{},
 		appendServiceId:            true,
 		disableAssignSourceIp:      false,
-		isSecondaryAddress:         false,
+		isPrimaryAddress:           true,
 	}
 	for _, option := range options {
 		if err := option(c); err != nil {
@@ -401,11 +401,11 @@ func (c *_HttpCookieJar) Cookies(u *url.URL) []*http.Cookie {
 func (c *HTTPHelper) _prepareRequest() (string, string, io.Reader, string) {
 	reqURL, reqMethod, postBody, signature, debugSignatureStr := c.url, "", "", "", ""
 	if reqURL == "" && c.serviceName != "" {
-		reqURL, c.isSecondaryAddress = GetServiceAddrByName(c.serviceName)
+		reqURL, c.isPrimaryAddress = GetServiceAddrByName(c.serviceName)
 		if !strings.Contains(reqURL, "http://") && !strings.Contains(reqURL, "https://") {
 			reqURL = fmt.Sprintf(`http://%s`, reqURL)
 		}
-		if c.isSecondaryAddress {
+		if !c.isPrimaryAddress {
 			log.Info2(c.logger, "[Service-Secondary-Address] serviceName=%s reqURL=%s secondary source ip:%s", c.serviceName, reqURL, LocalSecondaryAddress)
 		}
 	}
@@ -483,10 +483,10 @@ func (c *HTTPHelper) Call() (string, error) {
 	}
 	if !c.disableAssignSourceIp && (LocalPrimaryAddress != "" || LocalSecondaryAddress != "") {
 		var localAddr *net.TCPAddr
-		if c.isSecondaryAddress {
-			localAddr, _ = net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:0", LocalSecondaryAddress))
-		} else {
+		if c.isPrimaryAddress {
 			localAddr, _ = net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:0", LocalPrimaryAddress))
+		} else {
+			localAddr, _ = net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:0", LocalSecondaryAddress))
 		}
 		log.Info2(c.logger, "[LocalAddr] TCPAddr:%v Local Primary:%s Secondary:%s", *localAddr, LocalPrimaryAddress, LocalSecondaryAddress)
 		transport.DialContext = (&net.Dialer{
