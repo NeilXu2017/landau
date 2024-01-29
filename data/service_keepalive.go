@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"github.com/NeilXu2017/landau/log"
 	"github.com/gin-gonic/gin"
 	"html/template"
 	"sort"
@@ -71,27 +72,29 @@ type (
 )
 
 var (
-	ServiceName                                                                  = ""                                  //identity of this service
-	ServiceAddress                                                               = ""                                  //address of this service
-	SecondaryServiceAddress                                                      = ""                                  //secondary address of this service
-	ServiceNameHeadTag                                                           = "Landau-Service"                    //http head tag name of service id
-	ServiceAddressHeadTag                                                        = "Landau-Service-Addr"               //http head name of service address
-	serviceHealthMesh                                                            = make(map[string]*ServiceHealthInfo) //key: service name value: health info
-	syncServiceMesh                                                              = sync.RWMutex{}                      //sync map variable access
-	HealthCheckPeriod                                                            = 5                                   //default period of health checking
-	HealthCheckTimeout                                                           = 3                                   //default timeout of health checking
-	LastTraceServiceAddress                                                      = sync.Map{}                          //record exited last service address from requester
-	receiveServiceMesh                                                           = make(map[string]*ServiceHealthInfo) //receive service address
-	syncReceiverService                                                          = sync.RWMutex{}                      //sync map variable receiveServiceMesh
-	ReceiverKeepTimer            int64                                           = 30                                  //keep period to regard as health okay
-	MonitorServiceAddrChange     func() map[string][]string                                                            //monitor the config service address changed
-	MonitorServiceAddrChange2    func() (map[string][]string, map[string]string)                                       //monitor the config service address changed, secondary service map
-	MonitorServiceAddrPeriod     = 15                                                                                  //monitor job period
-	lastServiceAddr              map[string][]string                                                                   //last service address
-	ServiceMeshPrimary2Secondary = make(map[string]string)                                                             //other service secondary address key: primary address  value: secondary address
-	ServiceMeshSecondary2Primary = make(map[string]string)                                                             //other service secondary address key:secondary address value: primary address
-	syncMeshPrimary              = sync.RWMutex{}                                                                      //sync map
-	DisableAssignSourceIp        bool                                                                                  //disable source ip
+	ServiceName                                                                   = ""                                  //identity of this service
+	ServiceAddress                                                                = ""                                  //address of this service
+	SecondaryServiceAddress                                                       = ""                                  //secondary address of this service
+	ServiceNameHeadTag                                                            = "Landau-Service"                    //http head tag name of service id
+	ServiceAddressHeadTag                                                         = "Landau-Service-Addr"               //http head name of service address
+	serviceHealthMesh                                                             = make(map[string]*ServiceHealthInfo) //key: service name value: health info
+	syncServiceMesh                                                               = sync.RWMutex{}                      //sync map variable access
+	HealthCheckPeriod                                                             = 5                                   //default period of health checking
+	HealthCheckTimeout                                                            = 3                                   //default timeout of health checking
+	LastTraceServiceAddress                                                       = sync.Map{}                          //record exited last service address from requester
+	receiveServiceMesh                                                            = make(map[string]*ServiceHealthInfo) //receive service address
+	syncReceiverService                                                           = sync.RWMutex{}                      //sync map variable receiveServiceMesh
+	ReceiverKeepTimer             int64                                           = 30                                  //keep period to regard as health okay
+	MonitorServiceAddrChange      func() map[string][]string                                                            //monitor the config service address changed
+	MonitorServiceAddrChange2     func() (map[string][]string, map[string]string)                                       //monitor the config service address changed, secondary service map
+	MonitorServiceAddrPeriod      = 15                                                                                  //monitor job period
+	lastServiceAddr               map[string][]string                                                                   //last service address
+	ServiceMeshPrimary2Secondary  = make(map[string]string)                                                             //other service secondary address key: primary address  value: secondary address
+	ServiceMeshSecondary2Primary  = make(map[string]string)                                                             //other service secondary address key:secondary address value: primary address
+	syncMeshPrimary               = sync.RWMutex{}                                                                      //sync map
+	DisableAssignSourceIp         bool                                                                                  //disable source ip
+	lastReceiveServerCheckAddress = make(map[string]string)                                                             //last received server checker
+	syncLastServerChecker         = sync.RWMutex{}                                                                      //sync lastReceiveServerCheckAddress
 
 	//go:embed keepalived_trace.html
 	keepalivedTraceFile embed.FS
@@ -314,6 +317,20 @@ func DoHealthCheck(_ *gin.Context, param interface{}) (interface{}, string) {
 			ServiceMeshPrimary2Secondary[httpPrimary] = httpSecondary
 			ServiceMeshSecondary2Primary[httpSecondary] = httpPrimary
 			syncMeshPrimary.Unlock()
+		}
+		key, lastCheckerAddress := fmt.Sprintf("%s_%s", req.Checker, req.PrimaryAddress), ""
+		syncLastServerChecker.RLock()
+		lastCheckerAddress = lastReceiveServerCheckAddress[key]
+		syncLastServerChecker.RUnlock()
+		if lastCheckerAddress != req.CheckerAddress {
+			if req.CheckerAddress == req.PrimaryAddress {
+				log.Info("[%s]-[PrimaryAddress:%s]-[SecondaryAddress:%s] using primary address now", req.Checker, req.PrimaryAddress, req.SecondaryAddress)
+			} else {
+				log.Info("[%s]-[PrimaryAddress:%s]-[SecondaryAddress:%s] using secondary address now", req.Checker, req.PrimaryAddress, req.SecondaryAddress)
+			}
+			syncLastServerChecker.Lock()
+			lastReceiveServerCheckAddress[key] = req.CheckerAddress
+			syncLastServerChecker.Unlock()
 		}
 		if req.NotifyShutdown {
 			RemoveReceiveService(req.Checker, req.CheckerAddress)
