@@ -593,8 +593,9 @@ func _healthChecking(notifyShutdown bool) {
 			}
 			syncMeshPrimary.RUnlock()
 			if secondaryAddress != "" {
+				secReq := _HealthCheckRequest{Action: "ServiceHealthCheck", Service: name, CheckTime: checkTime, Checker: ServiceName, CheckerAddress: SecondaryServiceAddress, NotifyShutdown: notifyShutdown, PrimaryAddress: ServiceAddress, SecondaryAddress: SecondaryServiceAddress}
 				secHttpHelper, _ := NewHTTPHelper(SetHTTPUrl(fmt.Sprintf("%s/ServiceHealthCheck", secondaryAddress)), SetHTTPTimeout(HealthCheckTimeout),
-					SetHTTPRequestRawObject(req), SetHTTPLogCategory("health_checker"), SetHTTPDisableAssignSourceIp(DisableAssignSourceIp))
+					SetHTTPRequestRawObject(secReq), SetHTTPLogCategory("health_checker"), SetHTTPDisableAssignSourceIp(DisableAssignSourceIp))
 				if err := secHttpHelper.Call2(rsp); err == nil && rsp.RetCode == 0 && rsp.HealthStatus == 1 {
 					_updateServerHealthStatus(name, secondaryAddress, 1)
 				}
