@@ -183,6 +183,13 @@ func SetHTTPDisableAssignSourceIp(disableAssignSourceIp bool) HTTPHelperOptionFu
 	}
 }
 
+func SetHTTPIsPrimaryAddress(isPrimaryAddress bool) HTTPHelperOptionFunc {
+	return func(c *HTTPHelper) error {
+		c.isPrimaryAddress = isPrimaryAddress
+		return nil
+	}
+}
+
 // SetHTTPUrl 设置 HTTP 请求 url 地址
 func SetHTTPUrl(url string) HTTPHelperOptionFunc {
 	return func(c *HTTPHelper) error {
@@ -478,7 +485,7 @@ func (c *HTTPHelper) Call() (string, error) {
 	if c.insecureSkipVerify {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
-	if !c.disableAssignSourceIp && (LocalPrimaryAddress != "" || LocalSecondaryAddress != "") {
+	if !c.disableAssignSourceIp && (LocalPrimaryAddress != "" && LocalSecondaryAddress != "") {
 		var localAddr *net.TCPAddr
 		if c.isPrimaryAddress {
 			localAddr, _ = net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:0", LocalPrimaryAddress))

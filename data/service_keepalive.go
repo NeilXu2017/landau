@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"github.com/NeilXu2017/landau/log"
 	"github.com/gin-gonic/gin"
-	"html/template"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"text/template"
 	"time"
 )
 
@@ -597,7 +597,7 @@ func _healthChecking(notifyShutdown bool) {
 		req := _HealthCheckRequest{Action: "ServiceHealthCheck", Service: name, CheckTime: checkTime, Checker: ServiceName, CheckerAddress: ServiceAddress, NotifyShutdown: notifyShutdown, PrimaryAddress: ServiceAddress, SecondaryAddress: SecondaryServiceAddress}
 		rsp, healthStatus := &_HealthCheckResponse{}, 0
 		httpHelper, _ := NewHTTPHelper(SetHTTPUrl(fmt.Sprintf("%s/ServiceHealthCheck", addr)), SetHTTPTimeout(HealthCheckTimeout),
-			SetHTTPRequestRawObject(req), SetHTTPLogCategory("health_checker"), SetHTTPDisableAssignSourceIp(DisableAssignSourceIp))
+			SetHTTPRequestRawObject(req), SetHTTPLogCategory("health_checker"), SetHTTPDisableAssignSourceIp(DisableAssignSourceIp), SetHTTPIsPrimaryAddress(true))
 		if err := httpHelper.Call2(rsp); err == nil && rsp.RetCode == 0 && rsp.HealthStatus == 1 {
 			healthStatus = 1
 		}
@@ -612,7 +612,7 @@ func _healthChecking(notifyShutdown bool) {
 			if secondaryAddress != "" {
 				secReq := _HealthCheckRequest{Action: "ServiceHealthCheck", Service: name, CheckTime: checkTime, Checker: ServiceName, CheckerAddress: SecondaryServiceAddress, NotifyShutdown: notifyShutdown, PrimaryAddress: ServiceAddress, SecondaryAddress: SecondaryServiceAddress}
 				secHttpHelper, _ := NewHTTPHelper(SetHTTPUrl(fmt.Sprintf("%s/ServiceHealthCheck", secondaryAddress)), SetHTTPTimeout(HealthCheckTimeout),
-					SetHTTPRequestRawObject(secReq), SetHTTPLogCategory("health_checker"), SetHTTPDisableAssignSourceIp(DisableAssignSourceIp))
+					SetHTTPRequestRawObject(secReq), SetHTTPLogCategory("health_checker"), SetHTTPDisableAssignSourceIp(DisableAssignSourceIp), SetHTTPIsPrimaryAddress(false))
 				if err := secHttpHelper.Call2(rsp); err == nil && rsp.RetCode == 0 && rsp.HealthStatus == 1 {
 					_updateServerHealthStatus(name, secondaryAddress, 1)
 				}

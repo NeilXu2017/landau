@@ -32,6 +32,8 @@ var (
 		"WARN":  2,
 		"ERROR": 3,
 	}
+	_ApplicationLoggerName       = make(map[string]string, 0) //应用配置的logger
+	_ReplaceLoggerNameIfNotExist = "__replaced_logger_name__"
 )
 
 type (
@@ -122,6 +124,17 @@ func initLog2StdoutAsJSON(filename string) {
 			log2StdoutAsJSON[fc.Category] = fc.Level
 		}
 		logFiles = append(logFiles, fc.FileName)
+		_ApplicationLoggerName[fc.Category] = ""
+		if _, ok := _ApplicationLoggerName[_ReplaceLoggerNameIfNotExist]; !ok {
+			if fc.Category != APILoggerName && fc.Category != GINLoggerName {
+				_ApplicationLoggerName[_ReplaceLoggerNameIfNotExist] = fc.Category
+			}
+		}
+	}
+	if _, ok := _ApplicationLoggerName[_ReplaceLoggerNameIfNotExist]; !ok {
+		if len(lc.Files) > 0 {
+			_ApplicationLoggerName[_ReplaceLoggerNameIfNotExist] = lc.Files[0].Category
+		}
 	}
 	_initMonitorConfig(lc.FileMonitorConfig, logFiles)
 }
@@ -314,58 +327,68 @@ func _log2StdoutAsJSON(logger, level string, arg0 interface{}, args ...interface
 	return ok
 }
 
+func getLoggerSafely(logCategory string) string {
+	if _, ok := _ApplicationLoggerName[logCategory]; ok {
+		return logCategory
+	}
+	if v, ok := _ApplicationLoggerName[_ReplaceLoggerNameIfNotExist]; ok {
+		return v
+	}
+	return logCategory
+}
+
 // Info 记录到缺省 Logger，级别 Info
 func Info(arg0 interface{}, args ...interface{}) {
 	if !_log2StdoutAsJSON(defaultLogger, "INFO", arg0, args...) || _DoubleWrite {
-		log4go.LOGGER(defaultLogger).Info(arg0, args...)
+		log4go.LOGGER(getLoggerSafely(defaultLogger)).Info(arg0, args...)
 	}
 }
 
 // Debug 记录到缺省 Logger，级别 Debug
 func Debug(arg0 interface{}, args ...interface{}) {
 	if !_log2StdoutAsJSON(defaultLogger, "DEBUG", arg0, args...) || _DoubleWrite {
-		log4go.LOGGER(defaultLogger).Debug(arg0, args...)
+		log4go.LOGGER(getLoggerSafely(defaultLogger)).Debug(arg0, args...)
 	}
 }
 
 // Error 记录到缺省 Logger，级别 Error
 func Error(arg0 interface{}, args ...interface{}) {
 	if !_log2StdoutAsJSON(defaultLogger, "ERROR", arg0, args...) || _DoubleWrite {
-		log4go.LOGGER(defaultLogger).Error(arg0, args...)
+		log4go.LOGGER(getLoggerSafely(defaultLogger)).Error(arg0, args...)
 	}
 }
 
 // Warn 记录到缺省 Logger，级别 Warn
 func Warn(arg0 interface{}, args ...interface{}) {
 	if !_log2StdoutAsJSON(defaultLogger, "WARN", arg0, args...) || _DoubleWrite {
-		log4go.LOGGER(defaultLogger).Warn(arg0, args...)
+		log4go.LOGGER(getLoggerSafely(defaultLogger)).Warn(arg0, args...)
 	}
 }
 
 // Info2 记录到指定的 logger，级别 Info
 func Info2(logger string, arg0 interface{}, args ...interface{}) {
 	if !_log2StdoutAsJSON(logger, "INFO", arg0, args...) || _DoubleWrite {
-		log4go.LOGGER(logger).Info(arg0, args...)
+		log4go.LOGGER(getLoggerSafely(logger)).Info(arg0, args...)
 	}
 }
 
 // Debug2 记录到指定的 logger，级别 Debug
 func Debug2(logger string, arg0 interface{}, args ...interface{}) {
 	if !_log2StdoutAsJSON(logger, "DEBUG", arg0, args...) || _DoubleWrite {
-		log4go.LOGGER(logger).Debug(arg0, args...)
+		log4go.LOGGER(getLoggerSafely(logger)).Debug(arg0, args...)
 	}
 }
 
 // Error2 记录到指定的 logger，级别 Error
 func Error2(logger string, arg0 interface{}, args ...interface{}) {
 	if !_log2StdoutAsJSON(logger, "ERROR", arg0, args...) || _DoubleWrite {
-		log4go.LOGGER(logger).Error(arg0, args...)
+		log4go.LOGGER(getLoggerSafely(logger)).Error(arg0, args...)
 	}
 }
 
 // Warn2 记录到指定的 logger，级别 Warn
 func Warn2(logger string, arg0 interface{}, args ...interface{}) {
 	if !_log2StdoutAsJSON(logger, "WARN", arg0, args...) || _DoubleWrite {
-		log4go.LOGGER(logger).Warn(arg0, args...)
+		log4go.LOGGER(getLoggerSafely(logger)).Warn(arg0, args...)
 	}
 }
