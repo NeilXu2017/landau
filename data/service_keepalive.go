@@ -69,6 +69,7 @@ type (
 		CallCount   uint64
 		ReceiveTime string
 	}
+	_SortKeepalivedServiceTraceInfo []_KeepalivedServiceTraceInfo
 )
 
 var (
@@ -99,6 +100,15 @@ var (
 	//go:embed keepalived_trace.html
 	keepalivedTraceFile embed.FS
 )
+
+func (a _SortKeepalivedServiceTraceInfo) Len() int      { return len(a) }
+func (a _SortKeepalivedServiceTraceInfo) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+func (a _SortKeepalivedServiceTraceInfo) Less(i, j int) bool {
+	if a[i].ServiceName == a[j].ServiceName {
+		return a[i].AddressNum < a[j].AddressNum
+	}
+	return a[i].ServiceName < a[j].ServiceName
+}
 
 func MonitorServiceHealthConfigs() {
 	if MonitorServiceAddrChange != nil || MonitorServiceAddrChange2 != nil {
@@ -437,6 +447,15 @@ func OutputKeepaliveStatics(c *gin.Context) {
 		return true
 	}
 	LastTraceServiceAddress.Range(rangeAdd)
+	if len(m.Node) > 0 {
+		sort.Sort(_SortKeepalivedServiceTraceInfo(m.Node))
+	}
+	if len(m.TraceCallerService) > 0 {
+		sort.Sort(_SortKeepalivedServiceTraceInfo(m.TraceCallerService))
+	}
+	if len(m.LastTraceService) > 0 {
+		sort.Sort(_SortKeepalivedServiceTraceInfo(m.LastTraceService))
+	}
 	if t, err := template.ParseFS(keepalivedTraceFile, "keepalived_trace.html"); err == nil {
 		var buf bytes.Buffer
 		if err := t.Execute(&buf, m); err == nil {
