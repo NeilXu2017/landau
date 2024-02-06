@@ -473,15 +473,18 @@ func httpHandleProxy(c *gin.Context) {
 			actionName, bizResponse := getHTTPAuditLogContent(urlPath, param, response)
 			httpAuditLog(urlPath, actionName, &requestParamLog, &bizResponse, c)
 		}
-		urlLogResponse := a.logResponse
+		urlLogResponse, apiLogger := a.logResponse, a.logger
 		if urlPath == "/" {
 			if p, ok := param.(*httpRequestActionParam); ok {
 				if actionEntry, actionOK := httpActionEntry[p.Action]; actionOK {
 					urlLogResponse = actionEntry.logResponse
+					if actionEntry.logger != "" {
+						apiLogger = actionEntry.logger
+					}
 				}
 			}
 		}
-		log.Info2(a.logger, "[%s]\t[%s]\t%s\tRequest:%s\tResponse:%v", urlPath, time.Since(start), strCustomLogTag, requestParamLog, urlLogResponse(strResponse))
+		log.Info2(apiLogger, "[%s]\t[%s]\t%s\tRequest:%s\tResponse:%v", urlPath, time.Since(start), strCustomLogTag, requestParamLog, urlLogResponse(strResponse))
 		prometheus.UpdateApiMetric(getRetCodeFromInterface(response), getActionFromInterface(param), start, c.Request, "")
 	}
 }
