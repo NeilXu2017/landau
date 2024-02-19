@@ -40,6 +40,7 @@ type (
 		lastSetKeptAllConnection bool
 		driverName               string
 		driverExtendDSNProperty  map[string]interface{}
+		customLogSQL             func(string) string
 	}
 	_TxWrap struct {
 		start           time.Time
@@ -194,6 +195,13 @@ func SetDatabaseExtendDSNProperty(dsnProperty map[string]interface{}) DatabaseOp
 	}
 }
 
+func SetDatabaseCustomLogSQL(f func(string) string) DatabaseOptionFunc {
+	return func(c *Database) error {
+		c.customLogSQL = f
+		return nil
+	}
+}
+
 // GetDB 返回sqlx.DB 对象
 func (c *Database) GetDB() (*sqlx.DB, error) {
 	if conn, ok := dbConnectionPool.Load(c.dbConnection); ok {
@@ -281,6 +289,11 @@ func NewDefaultDatabase(host string, port int, user, password, schema string) {
 	defaultDatabase = NewDatabase2(host, port, user, password, schema)
 }
 
+func NewDefaultDatabase2(host string, port int, user, password, schema string, customLogSQL func(string) string) {
+	defaultDatabase = NewDatabase2(host, port, user, password, schema)
+	defaultDatabase.customLogSQL = customLogSQL
+}
+
 func getArrayLen(v reflect.Value) int {
 	switch v.Kind() {
 	case reflect.Array:
@@ -294,11 +307,25 @@ func getArrayLen(v reflect.Value) int {
 	}
 }
 
-func (c *Database) query(dbModel interface{}, strSQL string, isGetOne bool, args ...interface{}) (int, error) {
+func _getArgsLog(logArgs func(args ...interface{}) string, args ...interface{}) interface{} {
+	if logArgs == nil {
+		return args
+	}
+	return logArgs(args...)
+}
+
+func _getDBResultLog(logResult func(r interface{}) string, result interface{}) interface{} {
+	if logResult == nil {
+		return result
+	}
+	return logResult(result)
+}
+
+func (c *Database) query(dbModel interface{}, strSQL string, isGetOne bool, logArgs func(args ...interface{}) string, logResult func(r interface{}) string, args ...interface{}) (int, error) {
 	start := time.Now()
 	db, err := c.GetDB()
 	if err != nil {
-		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), strSQL, args, err)
+		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...), err)
 		return 0, err
 	}
 	if isGetOne {
@@ -308,10 +335,10 @@ func (c *Database) query(dbModel interface{}, strSQL string, isGetOne bool, args
 	}
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			log.Info2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\t[row count=0]", time.Since(start), strSQL, args)
+			log.Info2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\t[row count=0]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...))
 			return 0, nil
 		}
-		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), strSQL, args, err)
+		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...), err)
 		return 0, err
 	}
 	rowCounts := 1
@@ -320,9 +347,9 @@ func (c *Database) query(dbModel interface{}, strSQL string, isGetOne bool, args
 	}
 	if c.writeLog && log.IsEnableCategoryInfoLog("SQL") {
 		if isGetOne {
-			log.Info2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\t[%v]", time.Since(start), strSQL, args, dbModel)
+			log.Info2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\t[%v]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...), _getDBResultLog(logResult, dbModel))
 		} else {
-			log.Info2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\t[row count=%d]", time.Since(start), strSQL, args, rowCounts)
+			log.Info2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\t[row count=%d]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...), rowCounts)
 		}
 	}
 	return rowCounts, nil
@@ -335,25 +362,39 @@ func (c *Database) GetDbConn() string {
 
 // Get 查询单个记录
 func (c *Database) Get(dbModel interface{}, strSQL string, args ...interface{}) (int, error) {
-	return c.query(dbModel, strSQL, true, args...)
+	return c.query(dbModel, strSQL, true, nil, nil, args...)
+}
+func (c *Database) Get2(dbModel interface{}, strSQL string, logArgs func(args ...interface{}) string, logResult func(r interface{}) string, args ...interface{}) (int, error) {
+	return c.query(dbModel, strSQL, true, logArgs, logResult, args...)
 }
 
 // Gets  查询多条记录
 func (c *Database) Gets(dbModel interface{}, strSQL string, args ...interface{}) (int, error) {
-	return c.query(dbModel, strSQL, false, args...)
+	return c.query(dbModel, strSQL, false, nil, nil, args...)
+}
+
+func (c *Database) getLogSQL(sql string) string {
+	if c.customLogSQL == nil {
+		return sql
+	}
+	return c.customLogSQL(sql)
 }
 
 // Exec 执行SQL语句，返回影响的行数，如果数据库驱动不支持，返回-1
 func (c *Database) Exec(strSQL string, args ...interface{}) (int, error) {
+	return c.Exec2(strSQL, nil, args...)
+}
+
+func (c *Database) Exec2(strSQL string, logArgs func(args ...interface{}) string, args ...interface{}) (int, error) {
 	start := time.Now()
 	db, err := c.GetDB()
 	if err != nil {
-		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), strSQL, args, err)
+		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...), err)
 		return 0, err
 	}
 	result, execError := db.Exec(strSQL, args...)
 	if execError != nil {
-		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), strSQL, args, execError)
+		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...), execError)
 		return 0, execError
 	}
 	rowsCount, affectedError := result.RowsAffected()
@@ -361,22 +402,26 @@ func (c *Database) Exec(strSQL string, args ...interface{}) (int, error) {
 		rowsCount = -1
 	}
 	if c.writeLog && log.IsEnableCategoryInfoLog("SQL") {
-		log.Info2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\t[Affected Row Counts=%d]", time.Since(start), strSQL, args, int(rowsCount))
+		log.Info2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\t[Affected Row Counts=%d]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...), int(rowsCount))
 	}
 	return int(rowsCount), nil
 }
 
 // Insert 执行插入SQL语句，如果数据库驱动支持，且表有自增类型的主键，返回插入记录的主键，否则返回-1
 func (c *Database) Insert(strSQL string, args ...interface{}) (int, error) {
+	return c.Insert2(strSQL, nil, args...)
+}
+
+func (c *Database) Insert2(strSQL string, logArgs func(args ...interface{}) string, args ...interface{}) (int, error) {
 	start := time.Now()
 	db, err := c.GetDB()
 	if err != nil {
-		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), strSQL, args, err)
+		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...), err)
 		return 0, err
 	}
 	result, execError := db.Exec(strSQL, args...)
 	if execError != nil {
-		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), strSQL, args, execError)
+		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...), execError)
 		return 0, execError
 	}
 	lastInsertID, lastInsertErr := result.LastInsertId()
@@ -384,7 +429,7 @@ func (c *Database) Insert(strSQL string, args ...interface{}) (int, error) {
 		lastInsertID = -1
 	}
 	if c.writeLog && log.IsEnableCategoryInfoLog("SQL") {
-		log.Info2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\t[Last Inserted Row Id=%d]", time.Since(start), strSQL, args, int(lastInsertID))
+		log.Info2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\t[Last Inserted Row Id=%d]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...), int(lastInsertID))
 	}
 	return int(lastInsertID), nil
 }
@@ -426,7 +471,14 @@ func Get(dbModel interface{}, strSQL string, args ...interface{}) (int, error) {
 	if defaultDatabase == nil {
 		return 0, fmt.Errorf("no default db,please use NewDefaultDatabase method to set")
 	}
-	return defaultDatabase.query(dbModel, strSQL, true, args...)
+	return defaultDatabase.query(dbModel, strSQL, true, nil, nil, args...)
+}
+
+func Get2(dbModel interface{}, strSQL string, logArgs func(args ...interface{}) string, logResult func(r interface{}) string, args ...interface{}) (int, error) {
+	if defaultDatabase == nil {
+		return 0, fmt.Errorf("no default db,please use NewDefaultDatabase method to set")
+	}
+	return defaultDatabase.query(dbModel, strSQL, true, logArgs, logResult, args...)
 }
 
 // Gets 缺省DB查询
@@ -434,7 +486,13 @@ func Gets(dbModel interface{}, strSQL string, args ...interface{}) (int, error) 
 	if defaultDatabase == nil {
 		return 0, fmt.Errorf("no default db,please use NewDefaultDatabase method to set")
 	}
-	return defaultDatabase.query(dbModel, strSQL, false, args...)
+	return defaultDatabase.query(dbModel, strSQL, false, nil, nil, args...)
+}
+func Gets2(dbModel interface{}, strSQL string, logArgs func(args ...interface{}) string, args ...interface{}) (int, error) {
+	if defaultDatabase == nil {
+		return 0, fmt.Errorf("no default db,please use NewDefaultDatabase method to set")
+	}
+	return defaultDatabase.query(dbModel, strSQL, false, logArgs, nil, args...)
 }
 
 // Exec 缺省DB执行SQL
@@ -445,12 +503,26 @@ func Exec(strSQL string, args ...interface{}) (int, error) {
 	return defaultDatabase.Exec(strSQL, args...)
 }
 
+func Exec2(strSQL string, logArgs func(args ...interface{}) string, args ...interface{}) (int, error) {
+	if defaultDatabase == nil {
+		return 0, fmt.Errorf("no default db,please use NewDefaultDatabase method to set")
+	}
+	return defaultDatabase.Exec2(strSQL, logArgs, args...)
+}
+
 // Insert 缺省DB执行Insert SQL
 func Insert(strSQL string, args ...interface{}) (int, error) {
 	if defaultDatabase == nil {
 		return 0, fmt.Errorf("no default db,please use NewDefaultDatabase method to set")
 	}
 	return defaultDatabase.Insert(strSQL, args...)
+}
+
+func Insert2(strSQL string, logArgs func(args ...interface{}) string, args ...interface{}) (int, error) {
+	if defaultDatabase == nil {
+		return 0, fmt.Errorf("no default db,please use NewDefaultDatabase method to set")
+	}
+	return defaultDatabase.Insert2(strSQL, logArgs, args...)
 }
 
 // GetWhereClause 构建SQL条件从句,不含where关键字，只支持string,int及其数组
