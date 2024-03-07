@@ -121,11 +121,11 @@ func StartApiMetric() {
 }
 
 // UpdateApiMetric 框架调用,记录指标
-func UpdateApiMetric(retCode int, action string, tStart time.Time, r *http.Request, uri string) {
+func UpdateApiMetric(code int, action string, tStart time.Time, r *http.Request, uri string) {
 	if uri == "" {
 		uri = r.URL.Path
 	}
-	lvs := []string{strconv.Itoa(retCode), action, r.Method, uri}
+	lvs := []string{strconv.Itoa(code), action, r.Method, uri}
 	if reqCount != nil {
 		reqCount.WithLabelValues(lvs...).Inc()
 	}

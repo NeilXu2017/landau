@@ -59,7 +59,7 @@ type (
 		Name   string `form:"name" json:"name"`
 	}
 	ResponseAsStruct struct {
-		RetCode int
+		Code int
 	}
 	longTimerTaskParam struct {
 		SleepTimes int `form:"sleep_times" json:"sleep_times"`
@@ -105,7 +105,7 @@ func newLearnCodeParam() interface{} {
 func loginHandle(c *gin.Context, param interface{}) (interface{}, string) {
 	request := param.(*loginRequestParam)
 	userName := ""
-	retCode := 0
+	code := 0
 	retMessage := "login success"
 	switch request.UserID {
 	case "neil", "landau", "Neil", "Landau", "xuLong", "XuLong":
@@ -113,10 +113,10 @@ func loginHandle(c *gin.Context, param interface{}) (interface{}, string) {
 	case "hello", "Hello":
 		userName = "World"
 	default:
-		retCode = 100101
+		code = 100101
 		retMessage = "login failure"
 	}
-	if retCode == 0 {
+	if code == 0 {
 		sToken, _ := web.ReadCookie(c, "landau_session_id")
 		if sToken == "" {
 			sToken = fmt.Sprintf("%d_%d_%d", rand.Intn(100), rand.Intn(10), rand.Intn(1000))
@@ -132,15 +132,15 @@ func loginHandle(c *gin.Context, param interface{}) (interface{}, string) {
 		debugMsg = fmt.Sprintf("%s Metric:%v", debugMsg, request.Metrics[0])
 	}
 	if request.UserID == "hello" || request.UserID == "Hello" {
-		retCode := 0
+		code := 0
 		if request.UserID == "Hello" {
-			retCode = 144
+			code = 144
 		}
-		success := ResponseAsStruct{RetCode: retCode}
+		success := ResponseAsStruct{Code: code}
 		return success, request.String()
 	} else {
 		success := gin.H{
-			"RetCode":    retCode,
+			"Code":       code,
 			"Message":    retMessage,
 			"login_user": loginResponseParam{UserID: request.UserID, UserName: userName, LoginTime: time.Now().Format("2006-01-02 15:04:05")},
 			"debug_msg":  debugMsg,
@@ -154,7 +154,7 @@ func randHandle(_ *gin.Context, param interface{}) (interface{}, string) {
 	m := make(map[string]interface{})
 	data.CallHTTPService2("http://10.64.205.36:9690/get_region_service_info", request, m)
 	success := gin.H{
-		"RetCode": 0,
+		"Code": 0,
 		"Message": `rand success can optionally supply the name of a 可以有选kě yǐ择地提供自 custom dictionary and a Boolean value indicating whether you want to ignore case.
 		您可以有选择地提供自定义字典的名称和一个指示是否忽略大小写的Boolean值。
 		nín kě yǐ yǒu ǎn zé de tí gōng zì dìng yì zì diǎn de míng chēng hé yī gè zhǐ shì shì fǒu hū lüè dà ǎo xiě de Boolean zhí 。
@@ -208,7 +208,7 @@ func h1() {
 	param["num"] = "95"
 	type checkResponse struct {
 		Message string `json:"Message"`
-		RetCode int    `json:"RetCode"`
+		Code    int    `json:"Code"`
 		ID      int    `json:"id"`
 	}
 	c := checkResponse{}
@@ -227,7 +227,7 @@ func h2() {
 	param["Action"] = "Rand"
 	type checkResponse struct {
 		Message string `json:"Message"`
-		RetCode int    `json:"RetCode"`
+		Code    int    `json:"Code"`
 		ID      int    `json:"id"`
 	}
 	c := checkResponse{}
@@ -246,7 +246,7 @@ func h3() {
 	}
 	type checkResponse struct {
 		Message string `json:"Message"`
-		RetCode int    `json:"RetCode"`
+		Code    int    `json:"Code"`
 		ID      int    `json:"id"`
 	}
 	customLogRequest := func(p interface{}) string {
@@ -276,7 +276,7 @@ func doLongTimerTask(_ *gin.Context, param interface{}) (interface{}, string) {
 	if request.SleepTimes > 0 {
 		time.Sleep(time.Second * time.Duration(request.SleepTimes))
 	}
-	success := gin.H{"RetCode": 0, "Message": "LongTimerTaskResponse", "TimeDuration": time.Since(t)}
+	success := gin.H{"Code": 0, "Message": "LongTimerTaskResponse", "TimeDuration": time.Since(t)}
 	return success, request.String()
 }
 
@@ -292,7 +292,7 @@ func doLearnCodeTask(_ *gin.Context, param interface{}) (interface{}, string) {
 	}
 	sleepTime := time.Duration((1+rand.Intn(15))*unit) * time.Millisecond
 	s1, s2 := checkCost(sleepTime, request.StackCount)
-	success := gin.H{"RetCode": 0, "Message": "LearCodeResponse", "PanicCost": s1, "NoPanicCost": s2}
+	success := gin.H{"Code": 0, "Message": "LearCodeResponse", "PanicCost": s1, "NoPanicCost": s2}
 	return success, request.String()
 }
 

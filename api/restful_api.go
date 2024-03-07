@@ -141,7 +141,7 @@ func restFullHttpHandleProxy(c *gin.Context) {
 			if replaceDefaultRestfulBindError {
 				response = defaultRestfulBindErrorResponse
 			} else {
-				response = gin.H{"RetCode": 230, "Message": fmt.Sprintf("Bind params error [%v]", bindError)}
+				response = gin.H{"Code": 230, "Message": fmt.Sprintf("Bind params error [%v]", bindError)}
 			}
 		}
 		jsonpCallback := ""
@@ -170,7 +170,7 @@ func restFullHttpHandleProxy(c *gin.Context) {
 			strResponse = fmt.Sprintf("%v", response)
 		}
 		log.Info2(defaultAPILogger, "[%s]\t[%s]\t%s\tRequest:%s\tResponse:%v", urlPath, time.Since(start), strCustomLogTag, requestParamLog, defaultLogResponse(strResponse))
-		prometheus.UpdateApiMetric(getRetCodeFromInterface(response), getActionFromInterface(param), start, c.Request, a.Url)
+		prometheus.UpdateApiMetric(getCodeFromInterface(response), getActionFromInterface(param), start, c.Request, a.Url)
 	}
 }
 
@@ -193,15 +193,15 @@ func getHttpStatusCodeFromResponseObject(ptr interface{}, fieldName string, defa
 		typ := reflect.TypeOf(ptr)
 		for i := 0; i < typ.NumField(); i++ {
 			if typeField := typ.Field(i); typeField.Name == fieldName {
-				retCodeVal := val.Field(i)
-				switch retCodeVal.Kind() {
+				codeVal := val.Field(i)
+				switch codeVal.Kind() {
 				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-					return int(retCodeVal.Int())
+					return int(codeVal.Int())
 				case reflect.Float32, reflect.Float64:
-					return int(retCodeVal.Float())
+					return int(codeVal.Float())
 				default:
-					if retCodeVal.CanInterface() {
-						return _getIntValueFromInterface(retCodeVal.Interface())
+					if codeVal.CanInterface() {
+						return _getIntValueFromInterface(codeVal.Interface())
 					}
 				}
 			}

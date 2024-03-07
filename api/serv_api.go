@@ -85,9 +85,9 @@ var (
 		responseRune := []rune(msg)
 		return fmt.Sprintf("%s......%s", string(responseRune[0:64]), string(responseRune[len(responseRune)-64:]))
 	}
-	defaultAccessDenyResponse    = gin.H{"RetCode": 100, "Message": "请先登录"}
-	defaultAccessNoRightResponse = gin.H{"RetCode": 101, "Message": "没有权限，请向管理员申请权限"}
-	defaultBindErrorResponse     = gin.H{"RetCode": 160, "Message": "Missing Action"}
+	defaultAccessDenyResponse    = gin.H{"Code": 100, "Message": "请先登录"}
+	defaultAccessNoRightResponse = gin.H{"Code": 101, "Message": "没有权限，请向管理员申请权限"}
+	defaultBindErrorResponse     = gin.H{"Code": 160, "Message": "Missing Action"}
 	httpAuditLog                 HTTPAuditLog
 	postBindingComplexURL        map[string]string
 	postBindingComplexAction     map[string]string
@@ -242,7 +242,7 @@ func RegisterHTTPHandle(r *gin.Engine) {
 			c.Header("Access-Control-Allow-Headers", "Content-Type")
 		}
 		success := gin.H{
-			"RetCode": 0,
+			"Code":    0,
 			"Message": "options success",
 		}
 		c.JSON(http.StatusOK, success)
@@ -326,7 +326,7 @@ func dispatchAction(c *gin.Context, requestParams interface{}) (interface{}, str
 			rsp, reqStr := a.handleFunc(c, param)
 			return rsp, reqStr
 		}
-		return gin.H{"RetCode": 230, "Message": fmt.Sprintf("Bind params error [%v]", bindError)}, p.String()
+		return gin.H{"Code": 230, "Message": fmt.Sprintf("Bind params error [%v]", bindError)}, p.String()
 	}
 	if unRegisterHandle != nil {
 		if response, isDeny := isACLDeny("/", p.Action, c); isDeny {
@@ -404,7 +404,7 @@ func httpHandleProxy(c *gin.Context) {
 					strResponse = fmt.Sprintf("%v", response)
 				}
 				log.Info2(a.logger, "[%s]\t[%s]\t%s\tRequest:%s\tResponse:%v", urlPath, time.Since(start), strCustomLogTag, "{}", strResponse)
-				prometheus.UpdateApiMetric(getRetCodeFromInterface(response), "", start, c.Request, "")
+				prometheus.UpdateApiMetric(getCodeFromInterface(response), "", start, c.Request, "")
 				return
 			}
 		}
@@ -419,7 +419,7 @@ func httpHandleProxy(c *gin.Context) {
 			if replaceDefaultBindError {
 				response = defaultBindErrorResponse2
 			} else {
-				response = gin.H{"RetCode": 230, "Message": fmt.Sprintf("Bind params error [%v]", bindError)}
+				response = gin.H{"Code": 230, "Message": fmt.Sprintf("Bind params error [%v]", bindError)}
 			}
 		}
 		jsonpCallback := ""
@@ -485,7 +485,7 @@ func httpHandleProxy(c *gin.Context) {
 			}
 		}
 		log.Info2(apiLogger, "[%s]\t[%s]\t%s\tRequest:%s\tResponse:%v", urlPath, time.Since(start), strCustomLogTag, requestParamLog, urlLogResponse(strResponse))
-		prometheus.UpdateApiMetric(getRetCodeFromInterface(response), getActionFromInterface(param), start, c.Request, "")
+		prometheus.UpdateApiMetric(getCodeFromInterface(response), getActionFromInterface(param), start, c.Request, "")
 	}
 }
 
@@ -549,9 +549,9 @@ func getActionFromInterface(v interface{}) string {
 	return ""
 }
 
-func getRetCodeFromInterface(v interface{}) int {
+func getCodeFromInterface(v interface{}) int {
 	if gH, ok := v.(gin.H); ok {
-		if v, ok := gH["RetCode"]; ok {
+		if v, ok := gH["Code"]; ok {
 			return _getIntValueFromInterface(v)
 		}
 	}
@@ -559,16 +559,16 @@ func getRetCodeFromInterface(v interface{}) int {
 	if val.Kind() == reflect.Struct {
 		typ := reflect.TypeOf(v)
 		for i := 0; i < typ.NumField(); i++ {
-			if typeField := typ.Field(i); typeField.Name == "RetCode" {
-				retCodeVal := val.Field(i)
-				switch retCodeVal.Kind() {
+			if typeField := typ.Field(i); typeField.Name == "Code" {
+				codeVal := val.Field(i)
+				switch codeVal.Kind() {
 				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-					return int(retCodeVal.Int())
+					return int(codeVal.Int())
 				case reflect.Float32, reflect.Float64:
-					return int(retCodeVal.Float())
+					return int(codeVal.Float())
 				default:
-					if retCodeVal.CanInterface() {
-						return _getIntValueFromInterface(retCodeVal.Interface())
+					if codeVal.CanInterface() {
+						return _getIntValueFromInterface(codeVal.Interface())
 					}
 				}
 			}

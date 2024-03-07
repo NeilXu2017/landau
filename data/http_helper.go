@@ -55,7 +55,8 @@ type (
 		insecureSkipVerify         bool
 		appendServiceId            bool //add head tag
 		isPrimaryAddress           bool
-		disableAssignSourceIp      bool //是否指定源IP
+		disableAssignSourceIp      bool   //是否指定源IP
+		requestHost                string //设置 request.Host
 	}
 	_HttpCookieJar struct {
 		cookies []*http.Cookie
@@ -393,6 +394,13 @@ func SetHTTPDebugSignature(debugSignature bool) HTTPHelperOptionFunc {
 	}
 }
 
+func SetHTTPRequestHost(host string) HTTPHelperOptionFunc {
+	return func(c *HTTPHelper) error {
+		c.requestHost = host
+		return nil
+	}
+}
+
 func (c *_HttpCookieJar) SetCookies(u *url.URL, cookies []*http.Cookie) {
 	c.cookies = cookies
 	c.url = u
@@ -522,6 +530,9 @@ func (c *HTTPHelper) Call() (string, error) {
 		req.Header.Set(ServiceNameHeadTag, ServiceName)
 		req.Header.Set(ServiceAddressHeadTag, ServiceAddress)
 	}
+	if c.requestHost != "" {
+		req.Host = c.requestHost
+	}
 	response, responseErr := client.Do(req)
 	c.Response = response
 	if responseErr != nil {
@@ -624,6 +635,9 @@ func (c *HTTPHelper) Upload(fileFieldName string, filePath string) (string, erro
 		for k, v := range c.requestHead {
 			r.Header.Set(k, v)
 		}
+	}
+	if c.requestHost != "" {
+		r.Host = c.requestHost
 	}
 	client := &http.Client{}
 	if c.insecureSkipVerify {

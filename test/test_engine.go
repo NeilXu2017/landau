@@ -217,7 +217,7 @@ func (c personRequestParam) String() string {
 func personHandle(_ *gin.Context, param interface{}) (interface{}, string) {
 	p := param.(*personRequestParam)
 	success := gin.H{
-		"RetCode":        0,
+		"Code":           0,
 		"Received Name":  p.Name,
 		"Key ID":         p.KeyID,
 		"Request Method": p.Method,
@@ -228,7 +228,7 @@ func personHandle(_ *gin.Context, param interface{}) (interface{}, string) {
 func restfulPostVpc(_ *gin.Context, param interface{}) (interface{}, string) {
 	p := param.(*personRequestParam)
 	success := gin.H{
-		"RetCode":        0,
+		"Code":           0,
 		"Request Method": p.Method,
 		"Handle":         "POST /v2/vpc",
 	}
@@ -237,7 +237,7 @@ func restfulPostVpc(_ *gin.Context, param interface{}) (interface{}, string) {
 func restfulDeleteVpc(_ *gin.Context, param interface{}) (interface{}, string) {
 	p := param.(*personRequestParam)
 	success := gin.H{
-		"RetCode":        0,
+		"Code":           0,
 		"Request Method": p.Method,
 		"Handle":         "DELETE /v2/vpc/:id",
 	}
@@ -247,7 +247,7 @@ func restfulDeleteVpc(_ *gin.Context, param interface{}) (interface{}, string) {
 func restfulPostSubnet(_ *gin.Context, param interface{}) (interface{}, string) {
 	p := param.(*personRequestParam)
 	success := gin.H{
-		"RetCode":        0,
+		"Code":           0,
 		"Request Method": p.Method,
 		"Handle":         "POST /v2/vpc/subnet",
 	}
@@ -257,7 +257,7 @@ func restfulPostSubnet(_ *gin.Context, param interface{}) (interface{}, string) 
 func restfulDeleteSubnet(_ *gin.Context, param interface{}) (interface{}, string) {
 	p := param.(*personRequestParam)
 	success := gin.H{
-		"RetCode":        0,
+		"Code":           0,
 		"Request Method": p.Method,
 		"Handle":         "DELETE /v2/vpc/subnet/:id",
 	}
