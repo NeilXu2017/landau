@@ -1,6 +1,7 @@
 package data
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -41,6 +42,7 @@ type (
 		driverName               string
 		driverExtendDSNProperty  map[string]interface{}
 		customLogSQL             func(string) string
+		txOptions                *sql.TxOptions
 	}
 	_TxWrap struct {
 		start           time.Time
@@ -202,6 +204,13 @@ func SetDatabaseCustomLogSQL(f func(string) string) DatabaseOptionFunc {
 	}
 }
 
+func SetDatabaseTxOptions(txOptions *sql.TxOptions) DatabaseOptionFunc {
+	return func(c *Database) error {
+		c.txOptions = txOptions
+		return nil
+	}
+}
+
 // GetDB 返回sqlx.DB 对象
 func (c *Database) GetDB() (*sqlx.DB, error) {
 	if conn, ok := dbConnectionPool.Load(c.dbConnection); ok {
@@ -248,6 +257,10 @@ func NewDatabase(options ...DatabaseOptionFunc) *Database {
 		writeLog:              true,
 		logger:                defaultDbLogger,
 		driverName:            defaultMySQLDriverName,
+		txOptions: &sql.TxOptions{
+			Isolation: sql.LevelReadCommitted,
+			ReadOnly:  false,
+		},
 	}
 	for _, option := range options {
 		_ = option(db)
@@ -442,7 +455,7 @@ func (c *Database) ExecTx(bizFunc TxExecute) error {
 		log.Error2(c.logger, "[SQL ExecTx] [%s]\t Error:[%v]", time.Since(start), err)
 		return err
 	}
-	tx, err := db.Begin()
+	tx, err := db.BeginTx(context.Background(), c.txOptions)
 	if err != nil {
 		log.Error2(c.logger, "[SQL ExecTx] [%s]\t Begin Tx Error:[%v]", time.Since(start), err)
 		return err
