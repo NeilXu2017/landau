@@ -256,7 +256,7 @@ func RegisterHTTPHandle(r *gin.Engine) {
 		urlPath := c.Request.URL.Path
 		addAccessControlAllowHeader(c)
 		if unRegisterHandle == nil {
-			c.String(http.StatusNotFound, "404 page not found:%s", urlPath)
+			c.String(http.StatusNotFound, "404 page not found")
 			return
 		}
 		p := &httpRequestActionParam{}
