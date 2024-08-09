@@ -786,7 +786,7 @@ func (c *_TxWrap) Gets(dbModel interface{}, strSQL string, args ...interface{}) 
 								if fVal, err := strconv.ParseFloat(*val, 64); err == nil {
 									fv.SetFloat(fVal)
 								}
-							case reflect.Uint:
+							case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 								if iVal, err := strconv.Atoi(*val); err == nil {
 									fv.SetUint(uint64(iVal))
 								}
