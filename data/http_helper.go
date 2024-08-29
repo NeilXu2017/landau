@@ -428,6 +428,7 @@ func (c *HTTPHelper) _prepareRequest() (string, string, io.Reader, string) {
 			c.logSignature = debugSignatureStr
 		}
 	}
+	requestLoggerMsg := ""
 	strQuery := getEncodedQueryString(c.requestParams)
 	switch c.method {
 	case HTTPGet:
@@ -456,16 +457,16 @@ func (c *HTTPHelper) _prepareRequest() (string, string, io.Reader, string) {
 					postBody = strQuery
 				}
 			} else {
+				b, _ := json.Marshal(&(c.requestRawObject))
+				postBody = string(b)
 				if v, ok := c.requestRawObject.(fmt.Stringer); ok {
-					postBody = v.String()
+					requestLoggerMsg = v.String()
 				} else {
-					b, _ := json.Marshal(&(c.requestRawObject))
-					postBody = string(b)
+					requestLoggerMsg = postBody
 				}
 			}
 		}
 	}
-	requestLoggerMsg := postBody
 	if c.logRequest != nil {
 		var v interface{}
 		if c.requestRawObject != nil {
