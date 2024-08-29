@@ -456,8 +456,12 @@ func (c *HTTPHelper) _prepareRequest() (string, string, io.Reader, string) {
 					postBody = strQuery
 				}
 			} else {
-				b, _ := json.Marshal(&(c.requestRawObject))
-				postBody = string(b)
+				if v, ok := c.requestRawObject.(fmt.Stringer); ok {
+					postBody = v.String()
+				} else {
+					b, _ := json.Marshal(&(c.requestRawObject))
+					postBody = string(b)
+				}
 			}
 		}
 	}

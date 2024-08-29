@@ -164,8 +164,12 @@ func restFullHttpHandleProxy(c *gin.Context) {
 		}
 		strResponse := ""
 		if defaultResponseLogAsJSON {
-			byteResp, _ := json.Marshal(response)
-			strResponse = string(byteResp)
+			if v, ok := response.(fmt.Stringer); ok {
+				strResponse = v.String()
+			} else {
+				byteResp, _ := json.Marshal(response)
+				strResponse = string(byteResp)
+			}
 		} else {
 			strResponse = fmt.Sprintf("%v", response)
 		}
