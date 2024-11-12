@@ -2,7 +2,6 @@ package log
 
 import (
 	"fmt"
-	"github.com/NeilXu2017/landau/util"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -117,7 +116,7 @@ func _monitor() {
 				fName := f.Name()
 				historyLogFileName := regexp.MustCompile(fmt.Sprintf(`^%s\d{4}-\d{2}-d{2}$`, currentFileName))
 				if currentFileName != fName && historyLogFileName.MatchString(fName) { //不是当前日志文件, 是历史文件
-					_, _ = util.ExecCmd(fmt.Sprintf("tar czvf %s/%s.tar.z %s/%s", mf.Path, fName, mf.Path, fName))
+					execCmd(fmt.Sprintf("tar czvf %s/%s.tar.z %s/%s", mf.Path, fName, mf.Path, fName))
 					_ = os.Remove(fmt.Sprintf("%s/%s", mf.Path, fName))
 				}
 			}
@@ -199,4 +198,10 @@ func _getKeptDays() []*regexp.Regexp {
 		m = append(m, regexp.MustCompile(fmt.Sprintf("^.*%s$", dayId)))
 	}
 	return m
+}
+
+func execCmd(cmd string) {
+	var c *exec.Cmd
+	c = exec.Command("/bin/bash", "-c", cmd)
+	_ = c.Run()
 }
