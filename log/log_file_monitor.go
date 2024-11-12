@@ -2,6 +2,7 @@ package log
 
 import (
 	"fmt"
+	"github.com/NeilXu2017/landau/util"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -109,28 +110,16 @@ func _monitor() {
 		}
 	}()
 	if _monitorConfig.CleanDailyMode {
-		matches := _getKeptDays()
-		for _, f := range _monitorFiles {
-			var cleanFiles []string
-			currentFileName := f.FileName
-			files, _ := os.ReadDir(f.Path)
+		for _, mf := range _monitorFiles {
+			currentFileName := mf.FileName
+			files, _ := os.ReadDir(mf.Path)
 			for _, f := range files {
 				fName := f.Name()
-				if currentFileName != fName && strings.Contains(fName, currentFileName) { //不是当前日志文件, 是历史文件
-					kept := false
-					for _, m := range matches {
-						if m.MatchString(fName) {
-							kept = true
-							break
-						}
-					}
-					if !kept {
-						cleanFiles = append(cleanFiles, fName)
-					}
+				historyLogFileName := regexp.MustCompile(fmt.Sprintf(`^%s\d{4}-\d{2}-d{2}$`, currentFileName))
+				if currentFileName != fName && historyLogFileName.MatchString(fName) { //不是当前日志文件, 是历史文件
+					_, _ = util.ExecCmd(fmt.Sprintf("tar czvf %s/%s.tar.z %s/%s", mf.Path, fName, mf.Path, fName))
+					_ = os.Remove(fmt.Sprintf("%s/%s", mf.Path, fName))
 				}
-			}
-			for _, fileName := range cleanFiles {
-				_ = os.Remove(fmt.Sprintf("%s/%s", f.Path, fileName))
 			}
 		}
 		return
