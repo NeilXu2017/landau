@@ -109,12 +109,19 @@ func _monitor() {
 		}
 	}()
 	if _monitorConfig.CleanDailyMode {
+		dirEntry := make(map[string][]os.DirEntry)
 		for _, mf := range _monitorFiles {
 			currentFileName := mf.FileName
-			files, _ := os.ReadDir(mf.Path)
+			historyLogFileName := regexp.MustCompile(fmt.Sprintf(`^%s\d{4}-\d{2}-\d{2}$`, currentFileName))
+			files, ok := dirEntry[mf.Path]
+			if !ok {
+				files, _ = os.ReadDir(mf.Path)
+				if len(files) > 0 {
+					dirEntry[mf.Path] = files
+				}
+			}
 			for _, f := range files {
 				fName := f.Name()
-				historyLogFileName := regexp.MustCompile(fmt.Sprintf(`^%s\d{4}-\d{2}-d{2}$`, currentFileName))
 				if currentFileName != fName && historyLogFileName.MatchString(fName) { //不是当前日志文件, 是历史文件
 					execCmd(fmt.Sprintf("tar czvf %s/%s.tar.z %s/%s", mf.Path, fName, mf.Path, fName))
 					_ = os.Remove(fmt.Sprintf("%s/%s", mf.Path, fName))
