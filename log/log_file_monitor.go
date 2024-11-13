@@ -21,6 +21,7 @@ type (
 		Debug                 bool `json:"debug"`                    //Trace开关
 		CleanDailyMode        bool `json:"clean_daily_mode"`         //daily 模式监控日志
 		KeepDayCount          int  `json:"keep_day_count"`           //保留最近今天的日志,不包含当日
+		KeepCompressDayCount  int  `json:"keep_compress_day_count"`  //保留压缩日志的天数
 	}
 	_LogFileMonitorPath struct {
 		FileName string //日志文件名称
@@ -41,7 +42,7 @@ const (
 )
 
 var (
-	_monitorConfig = _LogFileMonitorConfig{CheckInterval: 300, CleanUsagePercent: 85, ReleaseSizePercent: 20, KeepDayCount: 3} //默认值: 5分钟检查一次 磁盘空间使用率 >=85 需要清理日志文件
+	_monitorConfig = _LogFileMonitorConfig{CheckInterval: 300, CleanUsagePercent: 85, ReleaseSizePercent: 20, KeepDayCount: 3, KeepCompressDayCount: 30} //默认值: 5分钟检查一次 磁盘空间使用率 >=85 需要清理日志文件
 	_monitorFiles  []_LogFileMonitorPath
 )
 
@@ -69,6 +70,9 @@ func _initMonitorConfig(c _LogFileMonitorConfig, logFileNames []string) {
 	}
 	if c.KeepDayCount > 0 {
 		_monitorConfig.KeepDayCount = c.KeepDayCount
+	}
+	if c.KeepCompressDayCount > 0 {
+		_monitorConfig.KeepCompressDayCount = c.KeepCompressDayCount
 	}
 	currentPath := _getCurrentPath()
 	for _, f := range logFileNames {
@@ -112,7 +116,7 @@ func _monitor() {
 		dirEntry := make(map[string][]os.DirEntry)
 		for _, mf := range _monitorFiles {
 			currentFileName := mf.FileName
-			historyLogFileName := regexp.MustCompile(fmt.Sprintf(`^%s\d{4}-\d{2}-\d{2}$`, currentFileName))
+			historyLogFileName := regexp.MustCompile(fmt.Sprintf(`^%s\.\d{4}-\d{2}-\d{2}$`, currentFileName))
 			files, ok := dirEntry[mf.Path]
 			if !ok {
 				files, _ = os.ReadDir(mf.Path)
@@ -123,8 +127,27 @@ func _monitor() {
 			for _, f := range files {
 				fName := f.Name()
 				if currentFileName != fName && historyLogFileName.MatchString(fName) { //不是当前日志文件, 是历史文件
-					execCmd(fmt.Sprintf("tar czvf %s/%s.tar.z %s/%s", mf.Path, fName, mf.Path, fName))
+					execCmd(fmt.Sprintf("tar czvf %s/%s.tar.gz %s/%s", mf.Path, fName, mf.Path, fName))
 					_ = os.Remove(fmt.Sprintf("%s/%s", mf.Path, fName))
+				}
+			}
+		}
+		t := time.Now().Add(0 - time.Duration(time.Hour*time.Duration(24*_monitorConfig.KeepCompressDayCount)))
+		for _, mf := range _monitorFiles {
+			currentFileName := mf.FileName
+			tarLogFileName := regexp.MustCompile(fmt.Sprintf(`^%s\.\d{4}-\d{2}-\d{2}\.tar.gz$`, currentFileName))
+			if files, ok := dirEntry[mf.Path]; ok {
+				for _, f := range files {
+					fName := f.Name()
+					if currentFileName != fName && tarLogFileName.MatchString(fName) { //历史压缩
+						values := strings.Split(fName, ".")
+						if len(values) > 3 {
+							day := values[len(values)-3]
+							if dt, err := time.Parse("2006-01-02", day); err == nil && dt.Before(t) {
+								_ = os.Remove(fmt.Sprintf("%s/%s", mf.Path, fName))
+							}
+						}
+					}
 				}
 			}
 		}
