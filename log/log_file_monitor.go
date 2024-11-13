@@ -22,6 +22,7 @@ type (
 		CleanDailyMode        bool `json:"clean_daily_mode"`         //daily 模式监控日志
 		KeepDayCount          int  `json:"keep_day_count"`           //保留最近今天的日志,不包含当日
 		KeepCompressDayCount  int  `json:"keep_compress_day_count"`  //保留压缩日志的天数
+		ExcludeCompressDays   int  `json:"exclude_compress_days"`    //不压缩的日志天数
 	}
 	_LogFileMonitorPath struct {
 		FileName string //日志文件名称
@@ -42,7 +43,7 @@ const (
 )
 
 var (
-	_monitorConfig = _LogFileMonitorConfig{CheckInterval: 300, CleanUsagePercent: 85, ReleaseSizePercent: 20, KeepDayCount: 3, KeepCompressDayCount: 30} //默认值: 5分钟检查一次 磁盘空间使用率 >=85 需要清理日志文件
+	_monitorConfig = _LogFileMonitorConfig{CheckInterval: 300, CleanUsagePercent: 85, ReleaseSizePercent: 20, KeepDayCount: 3, KeepCompressDayCount: 30, ExcludeCompressDays: 1} //默认值: 5分钟检查一次 磁盘空间使用率 >=85 需要清理日志文件
 	_monitorFiles  []_LogFileMonitorPath
 )
 
@@ -73,6 +74,9 @@ func _initMonitorConfig(c _LogFileMonitorConfig, logFileNames []string) {
 	}
 	if c.KeepCompressDayCount > 0 {
 		_monitorConfig.KeepCompressDayCount = c.KeepCompressDayCount
+	}
+	if c.ExcludeCompressDays > 0 {
+		_monitorConfig.ExcludeCompressDays = c.ExcludeCompressDays
 	}
 	currentPath := _getCurrentPath()
 	for _, f := range logFileNames {
@@ -114,6 +118,7 @@ func _monitor() {
 	}()
 	if _monitorConfig.CleanDailyMode {
 		dirEntry := make(map[string][]os.DirEntry)
+		excludeCompressDays := _getExcludeCompressDays()
 		for _, mf := range _monitorFiles {
 			currentFileName := mf.FileName
 			historyLogFileName := regexp.MustCompile(fmt.Sprintf(`^%s\.\d{4}-\d{2}-\d{2}$`, currentFileName))
@@ -127,22 +132,30 @@ func _monitor() {
 			for _, f := range files {
 				fName := f.Name()
 				if currentFileName != fName && historyLogFileName.MatchString(fName) { //不是当前日志文件, 是历史文件
-					execCmd(fmt.Sprintf("tar czvf %s/%s.tar.gz %s/%s", mf.Path, fName, mf.Path, fName))
-					_ = os.Remove(fmt.Sprintf("%s/%s", mf.Path, fName))
+					needCompress := true
+					for _, e := range excludeCompressDays {
+						if e.MatchString(fName) {
+							needCompress = false
+							break
+						}
+					}
+					if needCompress {
+						execCmd(fmt.Sprintf("gzip %s/%s", mf.Path, fName))
+					}
 				}
 			}
 		}
 		t := time.Now().Add(0 - time.Duration(time.Hour*time.Duration(24*_monitorConfig.KeepCompressDayCount)))
 		for _, mf := range _monitorFiles {
 			currentFileName := mf.FileName
-			tarLogFileName := regexp.MustCompile(fmt.Sprintf(`^%s\.\d{4}-\d{2}-\d{2}\.tar.gz$`, currentFileName))
+			tarLogFileName := regexp.MustCompile(fmt.Sprintf(`^%s\.\d{4}-\d{2}-\d{2}\.gz$`, currentFileName))
 			if files, ok := dirEntry[mf.Path]; ok {
 				for _, f := range files {
 					fName := f.Name()
 					if currentFileName != fName && tarLogFileName.MatchString(fName) { //历史压缩
 						values := strings.Split(fName, ".")
-						if len(values) > 3 {
-							day := values[len(values)-3]
+						if len(values) > 2 {
+							day := values[len(values)-2]
 							if dt, err := time.Parse("2006-01-02", day); err == nil && dt.Before(t) {
 								_ = os.Remove(fmt.Sprintf("%s/%s", mf.Path, fName))
 							}
@@ -220,10 +233,10 @@ func _getCurrentPath() string {
 	return ""
 }
 
-func _getKeptDays() []*regexp.Regexp {
+func _getExcludeCompressDays() []*regexp.Regexp {
 	var m []*regexp.Regexp
 	t := time.Now()
-	for i := 1; i <= _monitorConfig.KeepDayCount; i++ {
+	for i := 1; i <= _monitorConfig.ExcludeCompressDays; i++ {
 		dayId := t.Add(time.Duration(-24*i) * time.Hour).Format("2006-01-02")
 		m = append(m, regexp.MustCompile(fmt.Sprintf("^.*%s$", dayId)))
 	}
