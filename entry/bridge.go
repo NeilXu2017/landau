@@ -50,6 +50,8 @@ type (
 		ServiceAddress                    string                                          //自身服务地址
 		DisableTraceServiceAddress        bool                                            //是否禁用 从request记录 service/service address
 		SecondaryServiceAddress           string                                          //secondary ip service address
+		EnableMonitorAPI                  bool                                            //是否开启 API 非预期返回的结果监控上报
+		NotifyAPIWeChatRobot              string                                          //上报 Robot 地址 当 EnableMonitorAPI &&  EnableMonitorAPI 非空时,检测 response 是否实现了上报接口
 	}
 )
 

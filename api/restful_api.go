@@ -137,6 +137,7 @@ func restFullHttpHandleProxy(c *gin.Context) {
 		param, bindError := bindParamsRestful(c, &bizParamStruct, isPostMethod, isBindingComplex, c.Param(a.ID), c.Request.Method)
 		if bindError == nil {
 			response, requestParamLog = a.HttpHandle(c, param)
+			_doMonitorAPIResult(response)
 		} else {
 			if replaceDefaultRestfulBindError {
 				response = defaultRestfulBindErrorResponse

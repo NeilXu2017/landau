@@ -106,6 +106,8 @@ func (c *LandauServer) Start() {
 				c.ginRouter.GET("/output_keepalived_trace", data.OutputKeepaliveStatics)
 			}
 			api.DisableTraceServiceAddress = c.DisableTraceServiceAddress
+			api.EnableMonitorHttpAPI = c.EnableMonitorAPI
+			api.NotifyHttpAPIWeChatRobot = c.NotifyAPIWeChatRobot
 			data.ServiceName = c.ServiceName
 			api.SetPostBindingComplex(c.PostBindingComplex)
 			api.SetUnRegisterHandle(c.UnRegisterHTTPHandle)

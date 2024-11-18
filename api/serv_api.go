@@ -49,6 +49,17 @@ type (
 	UnHtmlEscapeJsonResponse struct {
 		Response interface{}
 	}
+	MonitorAPIResult interface {
+		IsUnExceptedResponse() bool
+		GetMarkdownNotifyMsg() string
+	}
+	RobotNotifyRequest struct {
+		MsgType  string              `json:"msgtype"`
+		Markdown RobotNotifyMarkdown `json:"markdown"`
+	}
+	RobotNotifyMarkdown struct {
+		Content string `json:"content"`
+	}
 )
 
 const (
@@ -97,6 +108,8 @@ var (
 	DisableTraceServiceAddress   bool
 	replaceDefaultBindError      bool
 	defaultBindErrorResponse2    interface{}
+	EnableMonitorHttpAPI         bool   //是否开启 API 非预期返回的结果监控上报
+	NotifyHttpAPIWeChatRobot     string //上报 Robot 地址
 )
 
 func (c *httpRequestActionParam) String() string {
@@ -269,6 +282,7 @@ func RegisterHTTPHandle(r *gin.Engine) {
 		}
 		response, requestParamLog := unRegisterHandle(c, p)
 		c.JSON(http.StatusOK, response)
+		_doMonitorAPIResult(response)
 		strCustomLogTag := ""
 		if customAPILogTag && httpCustomLogTag != nil {
 			strCustomLogTag = httpCustomLogTag(c)
@@ -328,6 +342,7 @@ func dispatchAction(c *gin.Context, requestParams interface{}) (interface{}, str
 		param, bindError := bindParams(c, &bizParamStruct, isPostMethod, isBindingComplex)
 		if bindError == nil {
 			rsp, reqStr := a.handleFunc(c, param)
+			_doMonitorAPIResult(rsp)
 			return rsp, reqStr
 		}
 		return gin.H{"Code": 230, "Message": fmt.Sprintf("Bind params error [%v]", bindError)}, p.String()
@@ -337,6 +352,7 @@ func dispatchAction(c *gin.Context, requestParams interface{}) (interface{}, str
 			return response, ""
 		}
 		rsp, reqStr := unRegisterHandle(c, requestParams)
+		_doMonitorAPIResult(rsp)
 		return rsp, reqStr
 	}
 	return defaultBindErrorResponse, p.String()
@@ -423,6 +439,7 @@ func httpHandleProxy(c *gin.Context) {
 		param, bindError := bindParams(c, &bizParamStruct, isPostMethod, isBindingComplex)
 		if bindError == nil {
 			response, requestParamLog = a.handleFunc(c, param)
+			_doMonitorAPIResult(response)
 		} else {
 			if replaceDefaultBindError {
 				response = defaultBindErrorResponse2
@@ -609,6 +626,26 @@ func _traceLastServiceAddress(c *gin.Context) {
 		address := c.Request.Header.Get(data.ServiceAddressHeadTag)
 		if serviceName != "" && address != "" {
 			data.LastTraceServiceAddress.Store(serviceName, address)
+		}
+	}
+}
+
+func _doMonitorAPIResult(rsp interface{}) {
+	if EnableMonitorHttpAPI && NotifyHttpAPIWeChatRobot != "" {
+		if v, ok := rsp.(MonitorAPIResult); ok && v.IsUnExceptedResponse() {
+			if content := v.GetMarkdownNotifyMsg(); content != "" {
+				go func() {
+					//robot send
+					req := RobotNotifyRequest{MsgType: "markdown", Markdown: RobotNotifyMarkdown{Content: content}}
+					rsp := make(map[string]interface{})
+					httpHelper, _ := data.NewHTTPHelper(
+						data.SetHTTPUrl(NotifyHttpAPIWeChatRobot),
+						data.SetHTTPRequestRawObject(req),
+						data.SetHTTPTimeout(15),
+					)
+					_ = httpHelper.Call2(&rsp)
+				}()
+			}
 		}
 	}
 }
