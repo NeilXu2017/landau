@@ -61,8 +61,7 @@ func CheckEngine() {
 		LogConfig:                 logConfigContent,
 		DefaultLoggerName:         entry.DefaultLogger,
 		GinLoggerName:             entry.DefaultGinLogger,
-		HTTPServiceAddress:        "10.64.82.93",
-		SecondaryServiceAddress:   "127.0.0.1",
+		HTTPServiceAddress:        "127.0.0.1",
 		HTTPServicePort:           9080,
 		GRPCServicePort:           0,
 		RegisterGRPCHandle:        registerRGPCHandle,
@@ -145,17 +144,19 @@ func getCronTasks() (interface{}, []util.SingletonCronTask) {
 	s := &myCronProxy{}
 	var cronJobs []util.SingletonCronTask
 	c := util.SingletonCronTask{
-		Name:     "heart",
-		Enable:   true,
-		Schedule: "@every 22s",
-		FuncName: "Heart",
+		Name:      "heart",
+		Enable:    true,
+		Schedule:  "@every 22s",
+		FuncName:  "Heart",
+		Immediate: true,
 	}
 	cronJobs = append(cronJobs, c)
 	skipJob := util.SingletonCronTask{
-		Name:     "scan",
-		Enable:   true,
-		Schedule: "@every 10s",
-		FuncName: "Scan",
+		Name:      "scan",
+		Enable:    true,
+		Schedule:  "@every 10s",
+		FuncName:  "Scan",
+		Immediate: true,
 	}
 	cronJobs = append(cronJobs, skipJob)
 	echo := util.SingletonCronTask{
@@ -164,6 +165,7 @@ func getCronTasks() (interface{}, []util.SingletonCronTask) {
 		Schedule:     "@every 7s",
 		FuncName:     "",
 		CallbackFunc: echoTime,
+		Immediate:    true,
 	}
 	cronJobs = append(cronJobs, echo)
 	hello := util.SingletonCronTask{

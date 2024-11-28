@@ -20,6 +20,7 @@ type (
 		FuncName     string      //执行的函数名称
 		Instance     interface{} //通过对象实例的实现函数, 必须是对象的指针
 		CallbackFunc func()      //实现函数. 直接调用,不通过 Instance对象实例
+		Immediate    bool        //是否立即执行
 	}
 	CronJobManager struct {
 		JobRunningState           map[string]bool
@@ -67,7 +68,7 @@ func StartCronJob(p interface{}, jobs []SingletonCronTask) {
 					s = &CronJobManager{JobRunningState: make(map[string]bool), SyncJobRunningStateLocker: sync.RWMutex{}}
 				}
 				n, fN, fI, fCallback := t.Name, t.FuncName, t.Instance, t.CallbackFunc
-				_ = engine.AddFunc(t.Schedule, func() {
+				jobFuncProxy := func() {
 					if s.GetJobRunningState(n) {
 						log.Info("[CronJobManager] [%s] previous job is running,skip once.", n)
 						return
@@ -104,9 +105,13 @@ func StartCronJob(p interface{}, jobs []SingletonCronTask) {
 					default:
 						log.Error("[CronJobManager] [%s] missing job function.", n)
 					}
-				})
+				}
+				_ = engine.AddFunc(t.Schedule, jobFuncProxy)
 				ScheduledJobCount++
 				log.Info("[CronJobManager] %s ADD,schedule:%s", t.Name, t.Schedule)
+				if t.Immediate {
+					go jobFuncProxy()
+				}
 			} else {
 				log.Info("[CronJobManager] %s SKIP", t.Name)
 			}
