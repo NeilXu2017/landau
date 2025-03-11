@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	testAction       = flag.String("test_action", "keepalived_service2", "test action: engine,cron_job,normal,normal_server,unit")
+	testAction       = flag.String("test_action", "cron_job", "test action: engine,cron_job,normal,normal_server,unit")
 	unitAction       = flag.String("unit_action", "", "unit action:")
 	serviceName      = flag.String("service_name", "HostApi", "run as service name")
 	servicePort      = flag.Int("service_port", 9010, "service port")
@@ -26,7 +26,7 @@ func main() {
 	switch *testAction {
 	case "engine":
 		test.CheckEngine()
-	case "cron_jon":
+	case "cron_job":
 		test.CheckCronJobMode()
 	case "normal":
 		test.CheckNormalMode()

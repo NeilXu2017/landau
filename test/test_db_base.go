@@ -29,6 +29,12 @@ type (
 		Name     string
 		Year     int
 	}
+	_TConfigInfo struct {
+		Idx         int    `db:"idx"`
+		ConfigItem  string `db:"config_item"`
+		ConfigValue string `db:"config_value"`
+		CreateTime  int    `db:"create_time"`
+	}
 )
 
 // String 格式化输出
@@ -39,6 +45,13 @@ func (c *zone) String() string {
 // InitDB 设置缺省DB连接参数
 func InitDB() {
 	data.NewDefaultDatabase("192.168.154.15", 3306, "xxx", "xxx", "xdb")
+	data.SetEnableOptimizeConnection(true)
+	data.SetDbPingCheckInterval(5)
+	data.SetOptimizeConnectionTrace(false)
+	data.SetBadConnectionCount(6)
+	data.SetOptimizeConnectionEventCallback(func(dbConn, eventType string, t int64) {
+		log.Info("[OptimizeConnectionEventCallback] eveType:%s time:%d db:{%s}", eventType, t, dbConn)
+	})
 }
 
 // CheckDB 测试DB访问
@@ -124,4 +137,15 @@ func CheckQueryInExecTx() {
 		return nil
 	}
 	_ = db.ExecTx(bizFunc)
+}
+
+func CheckDBTimeout() {
+	sql := `SELECT idx,config_item,config_value,create_time FROM t_configs WHERE config_item=?`
+	m := _TConfigInfo{}
+	_, err := data.Get(&m, sql, "cpu.memory.extra.sku")
+	if err != nil {
+		log.Error("[CheckDBTimeout] Get err:%v", err)
+	} else {
+		log.Info("[CheckDBTimeout] Config:%+v", m)
+	}
 }

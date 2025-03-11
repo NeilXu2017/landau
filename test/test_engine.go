@@ -138,6 +138,7 @@ func CheckNormalMode() {
 
 func myCustomInit() {
 	log.Info("my custom init...")
+	InitDB()
 }
 
 func getCronTasks() (interface{}, []util.SingletonCronTask) {
@@ -145,7 +146,7 @@ func getCronTasks() (interface{}, []util.SingletonCronTask) {
 	var cronJobs []util.SingletonCronTask
 	c := util.SingletonCronTask{
 		Name:      "heart",
-		Enable:    true,
+		Enable:    false,
 		Schedule:  "@every 22s",
 		FuncName:  "Heart",
 		Immediate: true,
@@ -153,7 +154,7 @@ func getCronTasks() (interface{}, []util.SingletonCronTask) {
 	cronJobs = append(cronJobs, c)
 	skipJob := util.SingletonCronTask{
 		Name:      "scan",
-		Enable:    true,
+		Enable:    false,
 		Schedule:  "@every 10s",
 		FuncName:  "Scan",
 		Immediate: true,
@@ -165,12 +166,12 @@ func getCronTasks() (interface{}, []util.SingletonCronTask) {
 		Schedule:     "@every 7s",
 		FuncName:     "",
 		CallbackFunc: echoTime,
-		Immediate:    true,
+		Immediate:    false,
 	}
 	cronJobs = append(cronJobs, echo)
 	hello := util.SingletonCronTask{
 		Name:     "Hello",
-		Enable:   true,
+		Enable:   false,
 		Schedule: "@every 3s",
 		FuncName: "Hello",
 		Instance: &oneInstance{Name: "One"},
@@ -179,7 +180,7 @@ func getCronTasks() (interface{}, []util.SingletonCronTask) {
 
 	hello2 := util.SingletonCronTask{
 		Name:     "Hello2",
-		Enable:   true,
+		Enable:   false,
 		Schedule: "@every 9s",
 		FuncName: "Hello2",
 		Instance: &oneInstance{Name: "Two"},
@@ -187,14 +188,14 @@ func getCronTasks() (interface{}, []util.SingletonCronTask) {
 	cronJobs = append(cronJobs, hello2)
 	Heart2 := util.SingletonCronTask{
 		Name:     "Heart2",
-		Enable:   true,
+		Enable:   false,
 		Schedule: "@every 6s",
 		FuncName: "Heart2",
 	}
 	cronJobs = append(cronJobs, Heart2)
 	weekend := util.SingletonCronTask{
 		Name:     "WeekEnd",
-		Enable:   true,
+		Enable:   false,
 		Schedule: "@every 4s",
 		FuncName: "WeekEnd",
 		Instance: &oneInstance{Name: "Three"},
@@ -204,7 +205,8 @@ func getCronTasks() (interface{}, []util.SingletonCronTask) {
 }
 
 func echoTime() {
-	log.Info("[echoTime]  echo time:%s", time.Now().Format("2006-01-02 15:04:05"))
+	//log.Info("[echoTime]  echo time:%s", time.Now().Format("2006-01-02 15:04:05"))
+	CheckDBTimeout() //TODO test DB
 }
 
 func newPersonRequestParameter() interface{} {

@@ -43,6 +43,7 @@ type (
 		driverExtendDSNProperty  map[string]interface{}
 		customLogSQL             func(string) string
 		txOptions                *sql.TxOptions
+		timeout                  int //建立连接的超时时间, 默认3 秒
 	}
 	_TxWrap struct {
 		start           time.Time
@@ -64,8 +65,8 @@ type (
 )
 
 const (
-	dbConnectionFmtNoTimeZone      = "%s:%s@tcp(%s:%d)/%s"
-	dbConnectionFmt                = "%s:%s@tcp(%s:%d)/%s?loc=%s&time_zone=%s"
+	dbConnectionFmtNoTimeZone      = "%s:%s@tcp(%s:%d)/%s?timeout=%ds"
+	dbConnectionFmt                = "%s:%s@tcp(%s:%d)/%s?loc=%s&time_zone=%s&timeout=%ds"
 	defaultDbLogger                = "main"
 	defaultMaxOpenConnections      = 50
 	defaultMaxIdleConnections      = 50
@@ -211,6 +212,16 @@ func SetDatabaseTxOptions(txOptions *sql.TxOptions) DatabaseOptionFunc {
 	}
 }
 
+func SetDatabaseTimeout(timeout int) DatabaseOptionFunc {
+	return func(c *Database) error {
+		if timeout < 1 {
+			return errors.New("timeout must be greater than zero")
+		}
+		c.timeout = timeout
+		return nil
+	}
+}
+
 // GetDB 返回sqlx.DB 对象
 func (c *Database) GetDB() (*sqlx.DB, error) {
 	if conn, ok := dbConnectionPool.Load(c.dbConnection); ok {
@@ -261,6 +272,7 @@ func NewDatabase(options ...DatabaseOptionFunc) *Database {
 			Isolation: sql.LevelReadCommitted,
 			ReadOnly:  false,
 		},
+		timeout: 3,
 	}
 	for _, option := range options {
 		_ = option(db)
@@ -271,9 +283,9 @@ func NewDatabase(options ...DatabaseOptionFunc) *Database {
 		strDBConnection = fmt.Sprintf("tcp://%s:%d?username=%s&password=%s&database=%s", util.IPConvert(db.host, util.IPV6Bracket), db.port, db.dbUser, db.dbPassword, db.schemaName)
 	default:
 		if db.loc == "" {
-			strDBConnection = fmt.Sprintf(dbConnectionFmtNoTimeZone, db.dbUser, db.dbPassword, util.IPConvert(db.host, util.IPV6Bracket), db.port, db.schemaName)
+			strDBConnection = fmt.Sprintf(dbConnectionFmtNoTimeZone, db.dbUser, db.dbPassword, util.IPConvert(db.host, util.IPV6Bracket), db.port, db.schemaName, db.timeout)
 		} else {
-			strDBConnection = fmt.Sprintf(dbConnectionFmt, db.dbUser, db.dbPassword, util.IPConvert(db.host, util.IPV6Bracket), db.port, db.schemaName, db.loc, url.QueryEscape(db.timeZone))
+			strDBConnection = fmt.Sprintf(dbConnectionFmt, db.dbUser, db.dbPassword, util.IPConvert(db.host, util.IPV6Bracket), db.port, db.schemaName, db.loc, url.QueryEscape(db.timeZone), db.timeout)
 		}
 	}
 	for k, v := range db.driverExtendDSNProperty {
@@ -334,11 +346,22 @@ func _getDBResultLog(logResult func(r interface{}) string, result interface{}) i
 	return logResult(result)
 }
 
+func (c *Database) checkError(err error) {
+	if db, _ := c.GetDB(); db != nil && db.DB != nil {
+		dbConnectionError(c.dbConnection, err, db.DB)
+	}
+}
+
 func (c *Database) query(dbModel interface{}, strSQL string, isGetOne bool, logArgs func(args ...interface{}) string, logResult func(r interface{}) string, args ...interface{}) (int, error) {
 	start := time.Now()
+	if skip, err := skipDbAccessDueErrBadConnection(c.dbConnection); skip {
+		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...), err)
+		return 0, err
+	}
 	db, err := c.GetDB()
 	if err != nil {
 		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...), err)
+		c.checkError(err)
 		return 0, err
 	}
 	if isGetOne {
@@ -352,6 +375,7 @@ func (c *Database) query(dbModel interface{}, strSQL string, isGetOne bool, logA
 			return 0, nil
 		}
 		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...), err)
+		c.checkError(err)
 		return 0, err
 	}
 	rowCounts := 1
@@ -400,14 +424,20 @@ func (c *Database) Exec(strSQL string, args ...interface{}) (int, error) {
 
 func (c *Database) Exec2(strSQL string, logArgs func(args ...interface{}) string, args ...interface{}) (int, error) {
 	start := time.Now()
+	if skip, err := skipDbAccessDueErrBadConnection(c.dbConnection); skip {
+		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...), err)
+		return 0, err
+	}
 	db, err := c.GetDB()
 	if err != nil {
 		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...), err)
+		c.checkError(err)
 		return 0, err
 	}
 	result, execError := db.Exec(strSQL, args...)
 	if execError != nil {
 		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...), execError)
+		c.checkError(err)
 		return 0, execError
 	}
 	rowsCount, affectedError := result.RowsAffected()
@@ -427,14 +457,20 @@ func (c *Database) Insert(strSQL string, args ...interface{}) (int, error) {
 
 func (c *Database) Insert2(strSQL string, logArgs func(args ...interface{}) string, args ...interface{}) (int, error) {
 	start := time.Now()
+	if skip, err := skipDbAccessDueErrBadConnection(c.dbConnection); skip {
+		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...), err)
+		return 0, err
+	}
 	db, err := c.GetDB()
 	if err != nil {
 		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...), err)
+		c.checkError(err)
 		return 0, err
 	}
 	result, execError := db.Exec(strSQL, args...)
 	if execError != nil {
 		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...), execError)
+		c.checkError(err)
 		return 0, execError
 	}
 	lastInsertID, lastInsertErr := result.LastInsertId()
@@ -450,14 +486,20 @@ func (c *Database) Insert2(strSQL string, logArgs func(args ...interface{}) stri
 // ExecTx 开始一个事务执行一系列SQL
 func (c *Database) ExecTx(bizFunc TxExecute) error {
 	start := time.Now()
+	if skip, err := skipDbAccessDueErrBadConnection(c.dbConnection); skip {
+		log.Error2(c.logger, "[SQL ExecTx] [%s]\t Error:[%v]", time.Since(start), err)
+		return err
+	}
 	db, err := c.GetDB()
 	if err != nil {
 		log.Error2(c.logger, "[SQL ExecTx] [%s]\t Error:[%v]", time.Since(start), err)
+		c.checkError(err)
 		return err
 	}
 	tx, err := db.BeginTx(context.Background(), c.txOptions)
 	if err != nil {
 		log.Error2(c.logger, "[SQL ExecTx] [%s]\t Begin Tx Error:[%v]", time.Since(start), err)
+		c.checkError(err)
 		return err
 	}
 	txWrap := _TxWrap{
