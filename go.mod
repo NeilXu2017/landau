@@ -9,7 +9,6 @@ require (
 	github.com/go-redis/redis v6.15.9+incompatible
 	github.com/go-sql-driver/mysql v1.7.1
 	github.com/google/uuid v1.3.1
-	github.com/jeanphorn/log4go v0.0.0-20190526082429-7dbb8deb9468
 	github.com/jmoiron/sqlx v1.3.5
 	github.com/olivere/elastic/v7 v7.0.32
 	github.com/onsi/ginkgo v1.8.0 // indirect
@@ -18,7 +17,6 @@ require (
 	github.com/robfig/cron v0.0.0-20180505203441-b41be1df6967
 	github.com/samuel/go-zookeeper v0.0.0-20180130194729-c4fab1ac1bec
 	github.com/streadway/amqp v0.0.0-20190827072141-edfb9018d271
-	github.com/toolkits/file v0.0.0-20160325033739-a5b3c5147e07 // indirect
 	golang.org/x/net v0.15.0 // indirect
 	google.golang.org/grpc v1.58.2
 	gopkg.in/yaml.v2 v2.4.0

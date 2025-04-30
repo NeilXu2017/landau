@@ -44,7 +44,7 @@ func (c *zone) String() string {
 
 // InitDB 设置缺省DB连接参数
 func InitDB() {
-	data.NewDefaultDatabase("192.168.154.15", 3306, "xxx", "xxx", "xdb")
+	data.NewDefaultDatabase("192.168.1.10", 3306, "x", "xxx", "xdb")
 	data.SetEnableOptimizeConnection(true)
 	data.SetDbPingCheckInterval(5)
 	data.SetOptimizeConnectionTrace(false)

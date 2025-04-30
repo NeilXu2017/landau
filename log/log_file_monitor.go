@@ -43,7 +43,7 @@ const (
 )
 
 var (
-	_monitorConfig = _LogFileMonitorConfig{CheckInterval: 300, CleanUsagePercent: 85, ReleaseSizePercent: 20, KeepDayCount: 3, KeepCompressDayCount: 30, ExcludeCompressDays: 1} //默认值: 5分钟检查一次 磁盘空间使用率 >=85 需要清理日志文件
+	_monitorConfig = _LogFileMonitorConfig{CheckInterval: 300, CleanUsagePercent: 85, ReleaseSizePercent: 20, KeepDayCount: 3, KeepCompressDayCount: 7, ExcludeCompressDays: 1} //默认值: 5分钟检查一次 磁盘空间使用率 >=85 需要清理日志文件
 	_monitorFiles  []_LogFileMonitorPath
 )
 

@@ -12,9 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jeanphorn/log4go"
-
 	"github.com/NeilXu2017/landau/helper"
+	"github.com/NeilXu2017/landau/log/log4go"
 )
 
 var (
