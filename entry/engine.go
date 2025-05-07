@@ -121,6 +121,7 @@ func (c *LandauServer) Start() {
 				addr = c.DynamicHTTPServiceAddress()
 			}
 			prometheus.SetNamespace(c.PrometheusMetricNamespace)
+			prometheus.SetNodeId(c.PrometheusNodeId)
 			if c.PrometheusMetricHost != "" {
 				prometheus.SetServerHost(c.PrometheusMetricHost)
 			} else {

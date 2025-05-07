@@ -21,8 +21,8 @@ type (
 		Filename string `json:"filename"`
 		Pattern  string `json:"pattern"`
 		Rotate   bool   `json:"rotate"`
-		Maxsize  string `json:"maxsize"`  // \d+[KMG]? Suffixes are in terms of 2**10
-		Maxlines string `json:"maxlines"` //\d+[KMG]? Suffixes are in terms of thousands
+		MaxSize  string `json:"maxsize"`  // \d+[KMG]? Suffixes are in terms of 2**10
+		MaxLines string `json:"maxlines"` //\d+[KMG]? Suffixes are in terms of thousands
 		Daily    bool   `json:"daily"`    //Automatically rotates by day
 		Sanitize bool   `json:"sanitize"` //Sanitize newlines to prevent log injection
 	}
@@ -52,7 +52,7 @@ func (log Logger) LoadJsonConfiguration(filename string) {
 	if err != nil {
 		content, err = ReadFile(filename)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "LoadJsonConfiguration: Error: Could not read %q: %s\n", filename, err)
+			_, _ = fmt.Fprintf(os.Stderr, "LoadJsonConfiguration: Error: Could not read %q: %s\n", filename, err)
 			os.Exit(1)
 		}
 	} else {
@@ -60,7 +60,7 @@ func (log Logger) LoadJsonConfiguration(filename string) {
 	}
 	err = json.Unmarshal([]byte(content), &lc)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "LoadJsonConfiguration: Error: Could not parse json configuration in %q: %s\n", filename, err)
+		_, _ = fmt.Fprintf(os.Stderr, "LoadJsonConfiguration: Error: Could not parse json configuration in %q: %s\n", filename, err)
 		os.Exit(1)
 	}
 	if lc.Console.Enable {
@@ -69,7 +69,7 @@ func (log Logger) LoadJsonConfiguration(filename string) {
 	for _, fc := range lc.Files {
 		if fc.Enable {
 			if len(fc.Category) == 0 {
-				fmt.Fprintf(os.Stderr, "LoadJsonConfiguration: file category can not be empty in <%s>: ", filename)
+				_, _ = fmt.Fprintf(os.Stderr, "LoadJsonConfiguration: file category can not be empty in <%s>: ", filename)
 				os.Exit(1)
 			}
 			log[fc.Category] = &Filter{getLogLevel(fc.Level), newFileLogWriter(fc), fc.Category}
@@ -78,7 +78,7 @@ func (log Logger) LoadJsonConfiguration(filename string) {
 	for _, sc := range lc.Sockets {
 		if sc.Enable {
 			if len(sc.Category) == 0 {
-				fmt.Fprintf(os.Stderr, "LoadJsonConfiguration: file category can not be empty in <%s>: ", filename)
+				_, _ = fmt.Fprintf(os.Stderr, "LoadJsonConfiguration: file category can not be empty in <%s>: ", filename)
 				os.Exit(1)
 			}
 			log[sc.Category] = &Filter{getLogLevel(sc.Level), newSocketLogWriter(sc), sc.Category}
@@ -106,7 +106,7 @@ func getLogLevel(l string) Level {
 	case "CRITICAL":
 		lvl = CRITICAL
 	default:
-		fmt.Fprintf(os.Stderr, "LoadJsonConfiguration: Error: Required level <%s> for filter has unknown value: %s\n", "level", l)
+		_, _ = fmt.Fprintf(os.Stderr, "LoadJsonConfiguration: Error: Required level <%s> for filter has unknown value: %s\n", "level", l)
 		os.Exit(1)
 	}
 	return lvl
@@ -135,11 +135,11 @@ func newFileLogWriter(ff *FileConfig) *FileLogWriter {
 		if len(ff.Pattern) > 0 {
 			format = strings.Trim(ff.Pattern, " \r\n")
 		}
-		if len(ff.Maxlines) > 0 {
-			maxLines = strToNumSuffix(strings.Trim(ff.Maxlines, " \r\n"), 1000)
+		if len(ff.MaxLines) > 0 {
+			maxLines = strToNumSuffix(strings.Trim(ff.MaxLines, " \r\n"), 1000)
 		}
-		if len(ff.Maxsize) > 0 {
-			maxSize = strToNumSuffix(strings.Trim(ff.Maxsize, " \r\n"), 1024)
+		if len(ff.MaxSize) > 0 {
+			maxSize = strToNumSuffix(strings.Trim(ff.MaxSize, " \r\n"), 1024)
 		}
 		daily = ff.Daily
 		rotate = ff.Rotate

@@ -31,7 +31,7 @@ var (
 		"WARN":  2,
 		"ERROR": 3,
 	}
-	_ApplicationLoggerName       = make(map[string]string, 0) //应用配置的logger
+	_ApplicationLoggerName       = make(map[string]string) //应用配置的logger
 	_ReplaceLoggerNameIfNotExist = "__replaced_logger_name__"
 )
 

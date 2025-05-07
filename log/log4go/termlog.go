@@ -24,7 +24,7 @@ func (c *ConsoleLogWriter) SetFormat(format string) {
 }
 func (c *ConsoleLogWriter) run(out io.Writer) {
 	for rec := range c.w {
-		fmt.Fprint(out, FormatLogRecord(c.format, rec))
+		_, _ = fmt.Fprint(out, FormatLogRecord(c.format, rec))
 	}
 }
 

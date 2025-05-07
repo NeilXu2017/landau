@@ -38,6 +38,7 @@ type (
 		PrometheusMetricHost              string                                          //Prometheus Metric 服务IP地址, 默认与 HTTPServiceAddress一致
 		PrometheusMetricPort              int                                             //Prometheus Metric 服务端口,默认 HTTPServicePort+3000
 		PrometheusMetricNamespace         string                                          //Prometheus Metric 上报指标 namespace, 默认值为空
+		PrometheusNodeId                  string                                          //Prometheus Metric 上报指标,label node_id 默认值为空
 		DisableGracefulStopping           bool                                            //禁止优雅停止服务,默认值为 false, 启用优雅stopping
 		GracefulTimeout                   uint64                                          //优雅stopping 等待超时时间, 默认值: 60秒
 		DynamicReloadConfig               func()                                          //通过信号机制触发回调用户函数,一般用于重新加载配置, window平台不支持信号. 使用了 SIGUSR1 信号,需要同时 DisableGracefulStopping=false 时生效

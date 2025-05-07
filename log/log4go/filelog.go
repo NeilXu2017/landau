@@ -8,21 +8,21 @@ import (
 )
 
 type FileLogWriter struct {
-	rec               chan *LogRecord //chan write
-	filename          string          // The opened file
-	file              *os.File
-	format            string // The logging format
-	header, trailer   string // File header/trailer
-	maxlines          int    // Rotate at linecount
-	maxlines_curlines int
-	maxsize           int // Rotate at size
-	maxsize_cursize   int
-	daily             bool // Rotate daily
-	daily_opendate    int
-	rotate            bool // Keep old logfiles (.001, .002, etc)
-	maxbackup         int
-	sanitize          bool // Sanitize newlines to prevent log injection
-	lastWriteLogTime  int64
+	rec              chan *LogRecord //chan write
+	filename         string          // The opened file
+	file             *os.File
+	format           string // The logging format
+	header, trailer  string // File header/trailer
+	maxLines         int    // Rotate at line count
+	maxLinesCurLines int
+	maxSize          int // Rotate at size
+	maxsizeCurSize   int
+	daily            bool // Rotate daily
+	dailyOpenDate    int
+	rotate           bool // Keep old logfiles (.001, .002, etc)
+	maxBackup        int
+	sanitize         bool // Sanitize newlines to prevent log injection
+	lastWriteLogTime int64
 }
 
 func (w *FileLogWriter) LogWrite(rec *LogRecord) {
@@ -31,7 +31,7 @@ func (w *FileLogWriter) LogWrite(rec *LogRecord) {
 
 func (w *FileLogWriter) Close() {
 	close(w.rec)
-	w.file.Sync()
+	_ = w.file.Sync()
 }
 
 func NewFileLogWriter(fName string, rotate bool, daily bool) *FileLogWriter {
@@ -41,7 +41,7 @@ func NewFileLogWriter(fName string, rotate bool, daily bool) *FileLogWriter {
 		format:    "[%D %T] [%L] (%S) %M",
 		daily:     daily,
 		rotate:    rotate,
-		maxbackup: 999,
+		maxBackup: 999,
 		sanitize:  false,
 	}
 	checkFileLogger = append(checkFileLogger, _FileLogCheckStatus{w: w})
@@ -49,8 +49,8 @@ func NewFileLogWriter(fName string, rotate bool, daily bool) *FileLogWriter {
 	go func() {
 		defer func() {
 			if w.file != nil {
-				fmt.Fprint(w.file, FormatLogRecord(w.trailer, &LogRecord{Created: time.Now()}))
-				w.file.Close()
+				_, _ = fmt.Fprint(w.file, FormatLogRecord(w.trailer, &LogRecord{Created: time.Now()}))
+				_ = w.file.Close()
 			}
 			if e := recover(); e != nil {
 				fmt.Printf("Panicing %s\n", e)
@@ -63,17 +63,17 @@ func NewFileLogWriter(fName string, rotate bool, daily bool) *FileLogWriter {
 				return
 			}
 			now := time.Now()
-			if (w.maxlines > 0 && w.maxlines_curlines >= w.maxlines) ||
-				(w.maxsize > 0 && w.maxsize_cursize >= w.maxsize) ||
-				(w.daily && now.Day() != w.daily_opendate) {
+			if (w.maxLines > 0 && w.maxLinesCurLines >= w.maxLines) ||
+				(w.maxSize > 0 && w.maxsizeCurSize >= w.maxSize) ||
+				(w.daily && now.Day() != w.dailyOpenDate) {
 				w.intRotate(true)
 			}
 			if w.sanitize {
 				rec.Message = strings.Replace(rec.Message, "\n", "\\n", -1)
 			}
 			if n, err := fmt.Fprint(w.file, FormatLogRecord(w.format, rec)); err == nil {
-				w.maxlines_curlines++
-				w.maxsize_cursize += n
+				w.maxLinesCurLines++
+				w.maxsizeCurSize += n
 				writeErrorCount = 0
 			} else {
 				writeErrorCount++
@@ -89,16 +89,16 @@ func NewFileLogWriter(fName string, rotate bool, daily bool) *FileLogWriter {
 
 func (w *FileLogWriter) intRotate(rotateNow bool) {
 	if w.file != nil {
-		fmt.Fprint(w.file, FormatLogRecord(w.trailer, &LogRecord{Created: time.Now()}))
-		w.file.Close()
+		_, _ = fmt.Fprint(w.file, FormatLogRecord(w.trailer, &LogRecord{Created: time.Now()}))
+		_ = w.file.Close()
 	}
 	if w.rotate {
 		if info, err := os.Stat(w.filename); err == nil {
 			modTime := info.ModTime()
-			w.daily_opendate = modTime.Day()
+			w.dailyOpenDate = modTime.Day()
 			switch {
 			case w.daily == false && rotateNow:
-				for num := w.maxbackup - 1; num >= 1; num-- {
+				for num := w.maxBackup - 1; num >= 1; num-- {
 					fName := w.filename + fmt.Sprintf(".%d", num)
 					nfName := w.filename + fmt.Sprintf(".%d", num+1)
 					if _, err = os.Lstat(fName); err == nil {
@@ -109,10 +109,10 @@ func (w *FileLogWriter) intRotate(rotateNow bool) {
 						fmt.Printf("Rotate os.Lstat %s error:%s\n ", fName, err.Error())
 					}
 				}
-			case w.daily && time.Now().Day() != w.daily_opendate:
+			case w.daily && time.Now().Day() != w.dailyOpenDate:
 				modDate := modTime.Format("2006-01-02")
 				fName := w.filename + fmt.Sprintf(".%s", modDate)
-				w.file.Close()
+				_ = w.file.Close()
 				if err = os.Rename(w.filename, fName); err != nil {
 					fmt.Printf("Rotate os.Rename %s to %s error:%s\n ", w.filename, fName, err.Error())
 				}
@@ -126,10 +126,10 @@ func (w *FileLogWriter) intRotate(rotateNow bool) {
 	}
 	w.file = fd
 	now := time.Now()
-	fmt.Fprint(w.file, FormatLogRecord(w.header, &LogRecord{Created: now}))
-	w.daily_opendate = now.Day()
-	w.maxlines_curlines = 0
-	w.maxsize_cursize = 0
+	_, _ = fmt.Fprint(w.file, FormatLogRecord(w.header, &LogRecord{Created: now}))
+	w.dailyOpenDate = now.Day()
+	w.maxLinesCurLines = 0
+	w.maxsizeCurSize = 0
 }
 
 func (w *FileLogWriter) SetFormat(format string) *FileLogWriter {
@@ -139,19 +139,19 @@ func (w *FileLogWriter) SetFormat(format string) *FileLogWriter {
 
 func (w *FileLogWriter) SetHeadFoot(head, foot string) *FileLogWriter {
 	w.header, w.trailer = head, foot
-	if w.maxlines_curlines == 0 {
-		fmt.Fprint(w.file, FormatLogRecord(w.header, &LogRecord{Created: time.Now()}))
+	if w.maxLinesCurLines == 0 {
+		_, _ = fmt.Fprint(w.file, FormatLogRecord(w.header, &LogRecord{Created: time.Now()}))
 	}
 	return w
 }
 
-func (w *FileLogWriter) SetRotateLines(maxlines int) *FileLogWriter {
-	w.maxlines = maxlines
+func (w *FileLogWriter) SetRotateLines(maxLines int) *FileLogWriter {
+	w.maxLines = maxLines
 	return w
 }
 
-func (w *FileLogWriter) SetRotateSize(maxsize int) *FileLogWriter {
-	w.maxsize = maxsize
+func (w *FileLogWriter) SetRotateSize(maxSize int) *FileLogWriter {
+	w.maxSize = maxSize
 	return w
 }
 
@@ -160,8 +160,8 @@ func (w *FileLogWriter) SetRotateDaily(daily bool) *FileLogWriter {
 	return w
 }
 
-func (w *FileLogWriter) SetRotateMaxBackup(maxbackup int) *FileLogWriter {
-	w.maxbackup = maxbackup
+func (w *FileLogWriter) SetRotateMaxBackup(maxBackup int) *FileLogWriter {
+	w.maxBackup = maxBackup
 	return w
 }
 

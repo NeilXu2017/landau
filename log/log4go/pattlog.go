@@ -7,15 +7,9 @@ import (
 	"strings"
 )
 
-const (
-	FORMAT_DEFAULT = "[%D %T] [%L] (%S) %M"
-	FORMAT_SHORT   = "[%t %d] [%L] %M"
-	FORMAT_ABBREV  = "[%L] %M"
-)
-
 type FormatLogWriter chan *LogRecord
 
-// Known format codes:
+// FormatLogRecord  Known format codes:
 // %Z - Time (15:04:05.999999999)
 // %T - Time (15:04:05 MST)
 // %t - Time (15:04)
@@ -90,7 +84,7 @@ func (w FormatLogWriter) run(out io.Writer, format string) {
 		}
 	}()
 	for rec := range w {
-		fmt.Fprint(out, FormatLogRecord(format, rec))
+		_, _ = fmt.Fprint(out, FormatLogRecord(format, rec))
 	}
 }
 

@@ -9,8 +9,6 @@ import (
 )
 
 const (
-	L4G_VERSION = "log4go-v0.0.1"
-
 	FINEST Level = iota
 	FINE
 	DEBUG

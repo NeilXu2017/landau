@@ -21,12 +21,13 @@ type (
 )
 
 var (
-	_PrometheusServerHost       string                                            //Prometheus服务接口地址:IP
-	_PrometheusServerPort       int                                               //Prometheus服务接口地址:端口
-	_namespace                  string                                            //metric namespace, fqName prefix
-	_metricUri                  = "metrics"                                       //metric handle 地址
-	_pprofUri                   = "pprof"                                         //pprof handle 地址
-	_VariableLabels             = []string{"ret_code", "action", "method", "uri"} //缺省variable label tag
+	_PrometheusServerHost       string                                                                  //Prometheus服务接口地址:IP
+	_PrometheusServerPort       int                                                                     //Prometheus服务接口地址:端口
+	_namespace                  string                                                                  //metric namespace, fqName prefix
+	_node_id                    string                                                                  //metric label node_id
+	_metricUri                  = "metrics"                                                             //metric handle 地址
+	_pprofUri                   = "pprof"                                                               //pprof handle 地址
+	_VariableLabels             = []string{"ret_code", "action", "method", "uri", "service", "node_id"} //缺省variable label tag
 	customPrometheusCollector   []prometheus.Collector
 	_DefaultPrometheusCollector = []DescTag{
 		{
@@ -53,6 +54,7 @@ var (
 func SetServerHost(addr string)     { _PrometheusServerHost = addr } //从LandauServer 配置获取,无法直接调用设置
 func SetServerPort(port int)        { _PrometheusServerPort = port } //从LandauServer 配置获取,无法直接调用设置
 func SetNamespace(namespace string) { _namespace = namespace }       //从LandauServer 配置获取,无法直接调用设置
+func SetNodeId(nodeId string)       { _node_id = nodeId }            //设置 node id,listener 地址
 func SetMetricsUri(uri string)      { _metricUri = uri }             //修改默认的 uri 地址 需要在 LandauServer.Start()前调用
 func SetPprofUri(uri string)        { _pprofUri = uri }              //修改默认的 uri 地址 需要在 LandauServer.Start()前调用
 
@@ -88,10 +90,10 @@ func StartApiMetric() {
 		switch index {
 		case 0:
 			if dc.Enable {
-				uptime = prometheus.NewCounterVec(prometheus.CounterOpts{Namespace: _namespace, Name: dc.Name, Help: dc.Help}, nil)
+				uptime = prometheus.NewCounterVec(prometheus.CounterOpts{Namespace: _namespace, Name: dc.Name, Help: dc.Help}, []string{"service", "node_id"})
 				go func() {
 					for range time.Tick(time.Second) {
-						uptime.WithLabelValues().Inc() //更新上线时长
+						uptime.WithLabelValues(_namespace, _node_id).Inc() //更新上线时长
 					}
 				}()
 				pcs = append(pcs, uptime)
@@ -125,7 +127,7 @@ func UpdateApiMetric(code int, action string, tStart time.Time, r *http.Request,
 	if uri == "" {
 		uri = r.URL.Path
 	}
-	lvs := []string{strconv.Itoa(code), action, r.Method, uri}
+	lvs := []string{strconv.Itoa(code), action, r.Method, uri, _namespace, _node_id}
 	if reqCount != nil {
 		reqCount.WithLabelValues(lvs...).Inc()
 	}

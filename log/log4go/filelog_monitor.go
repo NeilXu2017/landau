@@ -29,7 +29,7 @@ func init() {
 
 func checkFileLogPersistStatus(t time.Time) {
 	checkTime := t.Unix()
-	for i, _ := range checkFileLogger {
+	for i := range checkFileLogger {
 		fLength, err := checkFileLength(checkFileLogger[i].w.filename)
 		switch {
 		case checkFileLogger[i].lastCheckTime == 0:
