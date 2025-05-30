@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -119,7 +120,7 @@ func (w *FileLogWriter) intRotate(rotateNow bool) {
 			}
 		}
 	}
-	fd, err := os.OpenFile(w.filename, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0660)
+	fd, err := os.OpenFile(w.filename, os.O_WRONLY|os.O_APPEND|os.O_CREATE|syscall.O_NONBLOCK, 0660)
 	if err != nil {
 		fmt.Printf("os.OpenFile %s error:%s\n", w.filename, err.Error())
 		return
