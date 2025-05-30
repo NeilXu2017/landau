@@ -437,7 +437,7 @@ func (c *Database) Exec2(strSQL string, logArgs func(args ...interface{}) string
 	result, execError := db.Exec(strSQL, args...)
 	if execError != nil {
 		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...), execError)
-		c.checkError(err)
+		c.checkError(execError)
 		return 0, execError
 	}
 	rowsCount, affectedError := result.RowsAffected()
@@ -470,7 +470,7 @@ func (c *Database) Insert2(strSQL string, logArgs func(args ...interface{}) stri
 	result, execError := db.Exec(strSQL, args...)
 	if execError != nil {
 		log.Error2(c.logger, "[SQL] [%s]\t[%s]\tArgs [%v]\tError:[%v]", time.Since(start), c.getLogSQL(strSQL), _getArgsLog(logArgs, args...), execError)
-		c.checkError(err)
+		c.checkError(execError)
 		return 0, execError
 	}
 	lastInsertID, lastInsertErr := result.LastInsertId()
