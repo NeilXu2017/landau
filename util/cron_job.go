@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/rand"
 	"reflect"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -75,6 +76,9 @@ func StartCronJob(p interface{}, jobs []SingletonCronTask) {
 					}
 					start := time.Now()
 					defer func() {
+						if e := recover(); e != nil {
+							log.Error("[CronJobManager] [%s] panic:%v \nStack:%s", n, e, debug.Stack())
+						}
 						log.Info("[CronJobManager] [%s] [%s] complete.", n, time.Since(start))
 						s.SetJobRunningState(n, false)
 					}()

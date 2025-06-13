@@ -6,10 +6,12 @@ import (
 	"github.com/NeilXu2017/landau/log"
 	"github.com/NeilXu2017/landau/test"
 	"github.com/NeilXu2017/landau/version"
+	"math/rand"
+	"time"
 )
 
 var (
-	testAction       = flag.String("test_action", "engine", "test action: engine,cron_job,normal,normal_server,unit")
+	testAction       = flag.String("test_action", "learn", "test action: engine,cron_job,normal,normal_server,unit")
 	unitAction       = flag.String("unit_action", "", "unit action:")
 	serviceName      = flag.String("service_name", "HostApi", "run as service name")
 	servicePort      = flag.Int("service_port", 9010, "service port")
@@ -49,7 +51,18 @@ func main() {
 	}
 }
 
+const VxLanIdMask = 0xfffff //vxlan id 20 位
 func learnTestCode() {
+	base := (time.Now().UnixNano() & VxLanIdMask) << 4
+	fmt.Printf("MAX=16777216 20 = 16777200 base=%d\n", base)
+	maxTryCount := 30
+	for {
+		id := base + int64(rand.Intn(9999))
+		fmt.Printf("id=%d\n", id)
+		if maxTryCount--; maxTryCount < 0 {
+			break
+		}
+	}
 }
 
 func unitTest() {

@@ -46,6 +46,10 @@ func (c *myCronProxy) Heart2() {
 	log.Info("[myCron] Heart2 called")
 }
 
+func (c *myCronProxy) TestPanic() {
+	callFuncStackCount(10*time.Millisecond, 5, true)
+}
+
 func (c *oneInstance) Hello() {
 	log.Info("[oneInstance] [%s] receiver is pointer Hello world %d", c.Name, time.Now().Unix())
 	time.Sleep(5 * time.Second)
@@ -201,6 +205,13 @@ func getCronTasks() (interface{}, []util.SingletonCronTask) {
 		Instance: &oneInstance{Name: "Three"},
 	}
 	cronJobs = append(cronJobs, weekend)
+	panicJob := util.SingletonCronTask{
+		Name:     "TestPanic",
+		Enable:   true,
+		Schedule: "@every 11s",
+		FuncName: "TestPanic",
+	}
+	cronJobs = append(cronJobs, panicJob)
 	return s, cronJobs
 }
 
