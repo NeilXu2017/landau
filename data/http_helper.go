@@ -484,7 +484,7 @@ func (c *HTTPHelper) Call() (string, error) {
 	start := time.Now()
 	reqURL, reqMethod, bodyReader, requestLoggerMsg := c._prepareRequest()
 	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
+		Proxy: nil, //http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
@@ -647,7 +647,7 @@ func (c *HTTPHelper) Upload(fileFieldName string, filePath string) (string, erro
 	client := &http.Client{}
 	if c.insecureSkipVerify {
 		client.Transport = &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
+			Proxy: nil, // http.ProxyFromEnvironment,
 			DialContext: (&net.Dialer{
 				Timeout:   30 * time.Second,
 				KeepAlive: 30 * time.Second,
