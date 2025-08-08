@@ -108,8 +108,14 @@ var (
 	DisableTraceServiceAddress   bool
 	replaceDefaultBindError      bool
 	defaultBindErrorResponse2    interface{}
-	EnableMonitorHttpAPI         bool   //是否开启 API 非预期返回的结果监控上报
-	NotifyHttpAPIWeChatRobot     string //上报 Robot 地址
+	EnableMonitorHttpAPI         bool                           //是否开启 API 非预期返回的结果监控上报
+	NotifyHttpAPIWeChatRobot     string                         //上报 Robot 地址
+	ServiceDisabled              bool                           //服务状态是否 Disable 默认值为 false
+	ExcludeInitServiceDisabled   = make(map[string]interface{}) //不受 ServiceDisabled 影响的请求 action 或者 url
+	serviceTooEarly              = map[string]interface{}{
+		"Code":    425,
+		"Message": "Service Unavailable",
+	}
 )
 
 func (c *httpRequestActionParam) String() string {
@@ -142,6 +148,10 @@ func init() {
 		return &httpRequestActionParam{}
 	}
 	AddHTTPHandle2("/", "", newActionParam, dispatchAction)
+}
+
+func AddExcludeServiceDisabled(key string) {
+	ExcludeInitServiceDisabled[key] = struct{}{}
 }
 
 func SetDefaultBindError(replaced bool, replaceResponse interface{}) {
@@ -186,6 +196,11 @@ func SetHTTPCustomLogTag(enableCustomLogTag bool, customLogTag HTTPCustomLogTag)
 // SetResponseLogAsJSON 设置日志记录Response是否以json格式化，缺省是
 func SetResponseLogAsJSON(responseLogAsJSON bool) {
 	defaultResponseLogAsJSON = responseLogAsJSON
+}
+
+// SetServiceReady 设置 Service Ready Status
+func SetServiceReady(serviceReady bool) {
+	ServiceDisabled = !serviceReady
 }
 
 // SetUnRegisterHandle 设置未注册的Action处理入口
@@ -276,6 +291,10 @@ func RegisterHTTPHandle(r *gin.Engine) {
 		isPostMethod := c.Request.Method == "POST"
 		isBindingComplex := isPostBindingComplex(urlPath, "")
 		_, _ = bindParams(c, &p, isPostMethod, isBindingComplex)
+		if _isCheckServiceNotReady(p.Action, urlPath) {
+			c.JSON(http.StatusTooEarly, serviceTooEarly)
+			return
+		}
 		if response, isDeny := isACLDeny(urlPath, p.Action, c); isDeny {
 			c.JSON(http.StatusOK, response)
 			return
@@ -341,6 +360,9 @@ func dispatchAction(c *gin.Context, requestParams interface{}) (interface{}, str
 		isBindingComplex := isPostBindingComplex("", p.Action)
 		param, bindError := bindParams(c, &bizParamStruct, isPostMethod, isBindingComplex)
 		if bindError == nil {
+			if _isCheckServiceNotReady(p.Action, "") {
+				return serviceTooEarly, p.String()
+			}
 			rsp, reqStr := a.handleFunc(c, param)
 			_doMonitorAPIResult(rsp)
 			return rsp, reqStr
@@ -350,6 +372,9 @@ func dispatchAction(c *gin.Context, requestParams interface{}) (interface{}, str
 	if unRegisterHandle != nil {
 		if response, isDeny := isACLDeny("/", p.Action, c); isDeny {
 			return response, ""
+		}
+		if _isCheckServiceNotReady(p.Action, c.Request.URL.Path) {
+			return serviceTooEarly, p.String()
 		}
 		rsp, reqStr := unRegisterHandle(c, requestParams)
 		_doMonitorAPIResult(rsp)
@@ -438,6 +463,12 @@ func httpHandleProxy(c *gin.Context) {
 		bizParamStruct := a.newRequesterParameter()
 		param, bindError := bindParams(c, &bizParamStruct, isPostMethod, isBindingComplex)
 		if bindError == nil {
+			if urlPath != "/" {
+				if _isCheckServiceNotReady("", urlPath) {
+					c.JSON(http.StatusTooEarly, serviceTooEarly)
+					return
+				}
+			}
 			response, requestParamLog = a.handleFunc(c, param)
 			_doMonitorAPIResult(response)
 		} else {
@@ -648,4 +679,21 @@ func _doMonitorAPIResult(rsp interface{}) {
 			}
 		}
 	}
+}
+
+func _isCheckServiceNotReady(action, url string) bool {
+	if !ServiceDisabled {
+		return false
+	}
+	if action != "" {
+		if _, ok := ExcludeInitServiceDisabled[action]; ok {
+			return false
+		}
+	}
+	if url != "" {
+		if _, ok := ExcludeInitServiceDisabled[url]; ok {
+			return false
+		}
+	}
+	return true
 }

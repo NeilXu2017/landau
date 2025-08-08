@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	testAction       = flag.String("test_action", "learn", "test action: engine,cron_job,normal,normal_server,unit")
+	testAction       = flag.String("test_action", "starting_server", "test action: engine,cron_job,normal,normal_server,unit")
 	unitAction       = flag.String("unit_action", "", "unit action:")
 	serviceName      = flag.String("service_name", "HostApi", "run as service name")
 	servicePort      = flag.Int("service_port", 9010, "service port")
@@ -46,6 +46,8 @@ func main() {
 		test.KeepalivedService(*serviceName, *servicePort, *keepaliveService)
 	case "keepalived_service2":
 		test.KeepalivedService2(*serviceName, *servicePort, *primaryIp, *secondaryIp, *keepaliveService2)
+	case "starting_server":
+		test.CheckEngineReady()
 	default:
 		fmt.Printf("test_action=%s is invalid.\n", *testAction)
 	}

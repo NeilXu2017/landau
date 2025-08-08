@@ -294,6 +294,8 @@ func registerHTTPHandles() {
 	api.AddRESTFulAPIHttpHandle3("/v2/vpc/:id", newPersonRequestParameter, restfulDeleteVpc, "HttpCode", "DELETE")
 	api.AddRESTFulAPIHttpHandle3("/v2/vpc/subnet", newPersonRequestParameter, restfulPostSubnet, "HttpCode", "POST")
 	api.AddRESTFulAPIHttpHandle3("/v2/vpc/subnet/:id", newPersonRequestParameter, restfulDeleteSubnet, "HttpCode", "DELETE")
+
+	api.AddHTTPHandle2("/Starting", "Starting", newCallServiceNameRequest, doStarting)
 }
 
 func registerHTTPCustomHandles(router *gin.Engine) {
@@ -305,4 +307,32 @@ func registerHTTPCustomHandles(router *gin.Engine) {
 
 func registerRGPCHandle(_ *grpc.Server) {
 
+}
+
+func CheckEngineReady() {
+	s := &entry.LandauServer{
+		LogConfig:                 logConfigContent,
+		DefaultLoggerName:         entry.DefaultLogger,
+		GinLoggerName:             entry.DefaultGinLogger,
+		HTTPServiceAddress:        "127.0.0.1",
+		HTTPServicePort:           9080,
+		GRPCServicePort:           0,
+		RegisterGRPCHandle:        registerRGPCHandle,
+		CustomInit:                myCustomInit,
+		GetCronTasks:              getCronTasks,
+		RegisterHTTPHandles:       registerHTTPHandles,
+		RegisterHTTPCustomHandles: registerHTTPCustomHandles,
+		HTTPNeedCheckACL:          true,
+		HTTPCheckACL:              myCheckACL,
+		HTTPEnableCustomLogTag:    true,
+		HTTPCustomLog:             getUserSessionID,
+		EnablePrometheusMetric:    true,
+		PrometheusMetricNamespace: "landau",
+		DynamicReloadConfig: func() {
+			log.Info("[DynamicReloadConfig] received, changing app biz config.")
+		},
+		ExcludeInitServiceDisabled: []string{"/my", "Login", "/three/:id/pay", "Starting", "/Starting"},
+		InitServiceDisabled:        true,
+	}
+	s.Start()
 }

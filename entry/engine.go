@@ -102,6 +102,9 @@ func (c *LandauServer) Start() {
 			}
 			if !c.DisableServiceHealthReceiver {
 				healthReceiverLog := func(response interface{}) string { return fmt.Sprintf("%v", response) }
+				api.AddExcludeServiceDisabled("ServiceHealthCheck")
+				api.AddExcludeServiceDisabled("/ServiceHealthCheck")
+				api.AddExcludeServiceDisabled("/output_keepalived_trace")
 				api.AddHTTPHandle("/ServiceHealthCheck", "ServiceHealthCheck", data.NewServiceHealthCheckRequest, data.DoHealthCheck, healthReceiverLog, "health_receiver")
 				c.ginRouter.GET("/output_keepalived_trace", data.OutputKeepaliveStatics)
 			}
@@ -109,6 +112,11 @@ func (c *LandauServer) Start() {
 			api.EnableMonitorHttpAPI = c.EnableMonitorAPI
 			api.NotifyHttpAPIWeChatRobot = c.NotifyAPIWeChatRobot
 			data.ServiceName = c.ServiceName
+			api.ServiceDisabled = c.InitServiceDisabled
+			data.ReceivedServiceCallback = c.ReceivedServiceCallback
+			for _, d := range c.ExcludeInitServiceDisabled {
+				api.ExcludeInitServiceDisabled[d] = struct{}{}
+			}
 			api.SetPostBindingComplex(c.PostBindingComplex)
 			api.SetUnRegisterHandle(c.UnRegisterHTTPHandle)
 			api.RegisterHTTPHandle(c.ginRouter)

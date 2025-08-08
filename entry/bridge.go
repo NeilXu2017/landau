@@ -53,6 +53,9 @@ type (
 		SecondaryServiceAddress           string                                          //secondary ip service address
 		EnableMonitorAPI                  bool                                            //是否开启 API 非预期返回的结果监控上报
 		NotifyAPIWeChatRobot              string                                          //上报 Robot 地址 当 EnableMonitorAPI &&  EnableMonitorAPI 非空时,检测 response 是否实现了上报接口
+		InitServiceDisabled               bool                                            //初始服务状态是否 Disable 默认值为 false
+		ReceivedServiceCallback           func(string, string) bool                       //收到服务推送地址 回调设置 参数 service name, service url address
+		ExcludeInitServiceDisabled        []string                                        //不受 InitServiceDisabled 影响的请求 action 或者 url
 	}
 )
 

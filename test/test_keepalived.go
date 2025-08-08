@@ -3,6 +3,7 @@ package test
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/NeilXu2017/landau/api"
 	"github.com/NeilXu2017/landau/data"
 	"github.com/NeilXu2017/landau/entry"
 	"github.com/NeilXu2017/landau/log"
@@ -67,6 +68,13 @@ func doCallServiceName(c *gin.Context, param interface{}) (interface{}, string) 
 		data.CallHTTPServiceEx2(reqeust.Name, req, &rsp)
 		result.ServiceResponse = rsp
 	}
+	return result, reqeust.String()
+}
+
+func doStarting(c *gin.Context, param interface{}) (interface{}, string) {
+	reqeust := param.(*callServiceNameRequest)
+	result := callServiceNameResponse{}
+	api.SetServiceReady(true)
 	return result, reqeust.String()
 }
 

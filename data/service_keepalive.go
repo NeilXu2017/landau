@@ -96,6 +96,8 @@ var (
 	DisableAssignSourceIp         bool                                                                                  //disable source ip
 	lastReceiveServerCheckAddress = make(map[string]string)                                                             //last received server checker
 	syncLastServerChecker         = sync.RWMutex{}                                                                      //sync lastReceiveServerCheckAddress
+	serviceCallback               = sync.Map{}                                                                          //record callback zec
+	ReceivedServiceCallback       func(string, string) bool                                                             //收到服务推送地址 回调设置
 
 	//go:embed keepalived_trace.html
 	keepalivedTraceFile embed.FS
@@ -346,6 +348,15 @@ func DoHealthCheck(_ *gin.Context, param interface{}) (interface{}, string) {
 			RemoveReceiveService(req.Checker, req.CheckerAddress)
 		} else {
 			RegisterReceiveService(req.Checker, req.CheckerAddress)
+		}
+		if ReceivedServiceCallback != nil && req.Checker != "" && !req.NotifyShutdown {
+			if _, ok := serviceCallback.Load(req.Checker); !ok {
+				go func() {
+					if ReceivedServiceCallback(req.Checker, req.PrimaryAddress) {
+						serviceCallback.Store(req.Checker, struct{}{})
+					}
+				}()
+			}
 		}
 	}
 	rsp := _HealthCheckResponse{RetCode: 0, HealthStatus: 1, Message: "HealthCheckResponse"}
