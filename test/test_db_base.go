@@ -35,6 +35,10 @@ type (
 		ConfigValue string `db:"config_value"`
 		CreateTime  int    `db:"create_time"`
 	}
+	_DbVariableInfo struct {
+		Name  string `db:"Variable_name"`
+		Value string `db:"Value"`
+	}
 )
 
 // String 格式化输出
@@ -147,5 +151,34 @@ func CheckDBTimeout() {
 		log.Error("[CheckDBTimeout] Get err:%v", err)
 	} else {
 		log.Info("[CheckDBTimeout] Config:%+v", m)
+	}
+}
+
+func CheckDBExtendProperty(ip string, port int, extendProperty map[string]interface{}) {
+	db := data.NewDatabase(
+		data.SetDatabaseHost(ip),
+		data.SetDatabasePort(port),
+		data.SetDatabaseUser("x"),
+		data.SetDatabasePassword("x"),
+		data.SetDatabaseSchema("x"),
+		data.SetDatabaseExtendDSNProperty(extendProperty),
+	)
+	sql := `SELECT idx,config_item,config_value,create_time FROM t_configs WHERE config_item=?`
+	m := _TConfigInfo{}
+	_, err := db.Get(&m, sql, "cpu.memory.extra.sku")
+	if err != nil {
+		log.Error("[CheckDBExtendProperty] Get err:%v", err)
+	} else {
+		fmt.Printf("%+v\n\n", m)
+	}
+	sql = "show status like '%ssl%'"
+	var list []_DbVariableInfo
+	_, err = db.Gets(&list, sql)
+	if err != nil {
+		log.Error("[CheckDBExtendProperty] Get err:%v", err)
+	} else {
+		for _, d := range list {
+			fmt.Printf("%s	=	%s	\n", d.Name, d.Value)
+		}
 	}
 }

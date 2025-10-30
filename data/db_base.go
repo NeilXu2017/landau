@@ -82,9 +82,17 @@ const (
 )
 
 var (
-	defaultDatabase  *Database
-	dbConnectionPool sync.Map //key: dbConnection value: *sqlx.DB
+	defaultDatabase             *Database
+	dbConnectionPool            sync.Map //key: dbConnection value: *sqlx.DB
+	defaultTlsExtendDNSProperty = map[string]interface{}{
+		"tls": "preferred", //default append dns property
+	}
+	disbleDefaultTlsExtendDNSProperty = false
 )
+
+func SetDatabaseDisableDefaultTlsExtendProperty(disabled bool) {
+	disbleDefaultTlsExtendDNSProperty = disabled
+}
 
 // SetDatabaseHost 设置 Database Server 地址
 func SetDatabaseHost(host string) DatabaseOptionFunc {
@@ -288,7 +296,18 @@ func NewDatabase(options ...DatabaseOptionFunc) *Database {
 			strDBConnection = fmt.Sprintf(dbConnectionFmt, db.dbUser, db.dbPassword, util.IPConvert(db.host, util.IPV6Bracket), db.port, db.schemaName, db.loc, url.QueryEscape(db.timeZone), db.timeout)
 		}
 	}
+	dnsProperty := make(map[string]interface{})
 	for k, v := range db.driverExtendDSNProperty {
+		dnsProperty[k] = v
+	}
+	if !disbleDefaultTlsExtendDNSProperty && defaultTlsExtendDNSProperty != nil {
+		for k, v := range defaultTlsExtendDNSProperty {
+			if _, ok := dnsProperty[k]; !ok {
+				dnsProperty[k] = v
+			}
+		}
+	}
+	for k, v := range dnsProperty {
 		if strings.Contains(strDBConnection, "?") {
 			strDBConnection = fmt.Sprintf("%s&%s=%v", strDBConnection, k, v)
 		} else {
@@ -317,6 +336,11 @@ func NewDefaultDatabase(host string, port int, user, password, schema string) {
 func NewDefaultDatabase2(host string, port int, user, password, schema string, customLogSQL func(string) string) {
 	defaultDatabase = NewDatabase2(host, port, user, password, schema)
 	defaultDatabase.customLogSQL = customLogSQL
+}
+
+// NewDefaultDatabase3 构建缺省Database对象
+func NewDefaultDatabase3(host string, port int, user, password, schema string, extendProperty map[string]interface{}) {
+	defaultDatabase = NewDatabase(SetDatabaseHost(host), SetDatabasePort(port), SetDatabaseUser(user), SetDatabasePassword(password), SetDatabaseSchema(schema), SetDatabaseExtendDSNProperty(extendProperty))
 }
 
 func getArrayLen(v reflect.Value) int {

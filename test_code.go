@@ -3,11 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"math/rand"
+	"time"
+
 	"github.com/NeilXu2017/landau/log"
 	"github.com/NeilXu2017/landau/test"
 	"github.com/NeilXu2017/landau/version"
-	"math/rand"
-	"time"
 )
 
 var (
@@ -20,12 +21,18 @@ var (
 	secondaryIp      = flag.String("secondary_ip", "127.0.0.1", "service secondary ip address")
 	//keepaliveService2 = flag.String("keepalive_service2", "HostClient,http://127.0.0.1:11010,http://127.0.0.1:11020^http://127.0.0.1:11010#http://10.64.95.53:11010,http://127.0.0.1:11020#http://10.64.95.53:11020", "checker service list")
 	keepaliveService2 = flag.String("keepalive_service2", "HostClient,http://10.64.95.53:10010^http://10.64.95.53:10010#http://127.0.0.1:10010", "checker service list")
+	dbIp              = flag.String("db_ip", "", "db_ip:db host ip address")
+	dbPort            = flag.Int("db_port", 3306, "db_port: db port")
+	dbExtendProperty  = flag.String("db_prop", "tls", "db_prop:db extend property, default tls")
+	dbExtendValue     = flag.String("db_prop_value", "", "db_prop_value: db extend property value")
 )
 
 func main() {
 	flag.Parse()
 	version.ShowVersion()
 	switch *testAction {
+	case "db":
+		dbTest()
 	case "engine":
 		test.CheckEngine()
 	case "cron_job":
@@ -81,4 +88,18 @@ func unitTest() {
 		fmt.Printf("unit_action=%s do nothing.\n", *unitAction)
 	}
 	log.Close()
+}
+
+func dbTest() {
+	test.InitLog()
+	defer log.Close()
+	if *dbIp == "" {
+		fmt.Println("Missing database ip\n")
+		return
+	}
+	extendProrety := make(map[string]interface{})
+	if *dbExtendProperty != "" && *dbExtendValue != "" {
+		extendProrety[*dbExtendProperty] = *dbExtendValue
+	}
+	test.CheckDBExtendProperty(*dbIp, *dbPort, extendProrety)
 }

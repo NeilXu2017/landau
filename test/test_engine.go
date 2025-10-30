@@ -82,6 +82,12 @@ func CheckEngine() {
 		DynamicReloadConfig: func() {
 			log.Info("[DynamicReloadConfig] received, changing app biz config.")
 		},
+		GracefulTimeout: 30,
+		DestoryCallback: func() {
+			log.Info("my DestoryCallback is called now... wait 21 seconds")
+			time.Sleep(time.Second * 4)
+			log.Info("my DestoryCallback done")
+		},
 	}
 	s.Start()
 }

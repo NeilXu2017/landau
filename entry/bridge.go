@@ -56,6 +56,7 @@ type (
 		InitServiceDisabled               bool                                            //初始服务状态是否 Disable 默认值为 false
 		ReceivedServiceCallback           func(string, string) bool                       //收到服务推送地址 回调设置 参数 service name, service url address
 		ExcludeInitServiceDisabled        []string                                        //不受 InitServiceDisabled 影响的请求 action 或者 url
+		DestoryCallback                   func()                                          //stoped 之前调用
 	}
 )
 

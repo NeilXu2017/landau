@@ -5,13 +5,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/NeilXu2017/landau/api"
-	"github.com/NeilXu2017/landau/data"
-	"github.com/NeilXu2017/landau/log"
-	"github.com/NeilXu2017/landau/prometheus"
-	"github.com/NeilXu2017/landau/util"
-	"github.com/NeilXu2017/landau/version"
 	sysLog "log"
+	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -24,6 +19,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/NeilXu2017/landau/api"
+	"github.com/NeilXu2017/landau/data"
+	"github.com/NeilXu2017/landau/log"
+	"github.com/NeilXu2017/landau/prometheus"
+	"github.com/NeilXu2017/landau/util"
+	"github.com/NeilXu2017/landau/version"
+
 	"github.com/gin-gonic/gin"
 
 	"google.golang.org/grpc"
@@ -31,11 +33,12 @@ import (
 )
 
 var (
-	srv            *http.Server                                        //saved to be used in graceful stopping
-	secondSrv      *http.Server                                        //saved to be used in graceful stopping
-	grpcServer     *grpc.Server                                        //saved to be used in graceful stopping
-	reload         = flag.Bool("reload", false, "Signal reload event") //reload cmd
-	reloadCallback func()                                              //reload 回调
+	srv             *http.Server                                        //saved to be used in graceful stopping
+	secondSrv       *http.Server                                        //saved to be used in graceful stopping
+	grpcServer      *grpc.Server                                        //saved to be used in graceful stopping
+	reload          = flag.Bool("reload", false, "Signal reload event") //reload cmd
+	reloadCallback  func()                                              //reload 回调
+	destoryCallback func()                                              //destory callback
 )
 
 // Start 服务启动入口,作为 web server 或 grpc server
@@ -47,6 +50,9 @@ func (c *LandauServer) Start() {
 	version.ShowVersion()
 	if !c.DisableGracefulStopping && c.DynamicReloadConfig != nil {
 		reloadCallback = c.DynamicReloadConfig
+	}
+	if c.DestoryCallback != nil {
+		destoryCallback = c.DestoryCallback
 	}
 	makeReloadSignal()
 	log.LoadLogConfig(c.LogConfig, c.DefaultLoggerName)
@@ -217,6 +223,9 @@ func (c *LandauServer) StartCronJobMode(gracefulTimeout uint64) {
 	if !c.DisableGracefulStopping && c.DynamicReloadConfig != nil {
 		reloadCallback = c.DynamicReloadConfig
 	}
+	if c.DestoryCallback != nil {
+		destoryCallback = c.DestoryCallback
+	}
 	makeReloadSignal()
 	log.LoadLogConfig(c.LogConfig, c.DefaultLoggerName)
 	if c.CustomInit != nil {
@@ -245,6 +254,9 @@ func (c *LandauServer) StartNormalServerMode(mainEntry func(), gracefulTimeout u
 	version.ShowVersion()
 	if !c.DisableGracefulStopping && c.DynamicReloadConfig != nil {
 		reloadCallback = c.DynamicReloadConfig
+	}
+	if c.DestoryCallback != nil {
+		destoryCallback = c.DestoryCallback
 	}
 	makeReloadSignal()
 	log.LoadLogConfig(c.LogConfig, c.DefaultLoggerName)
@@ -321,11 +333,19 @@ func gracefulStop(gracefulTimeout uint64) {
 				grpcServer.GracefulStop()
 			}
 		}
-		wg.Add(4)
+		appShutdown := func() {
+			defer wg.Done()
+			if err := appShutdownCallback(waitMaxSecond); err != nil {
+				sysLog.Fatalf("[appShutdownCallback] Shutdown error,err:%v", err)
+			}
+		}
+
+		wg.Add(5)
 		go httpSrvShutdown()
 		go secondHttpSrvShutdown()
 		go cronJobShutdown()
 		go grpcSvrShutdown()
+		go appShutdown()
 		data.NotifyCheckerShutdown()
 		wg.Wait()
 	}
@@ -388,4 +408,38 @@ func getProcIdName(process string) (int, string, error) {
 		return pid, lines[len(lines)-1], nil
 	}
 	return -1, "", fmt.Errorf("pare proceess (%s) invalid", p)
+}
+
+func appShutdownCallback(waitMaxSecond uint64) error {
+	if destoryCallback != nil {
+		pollIntervalBase := time.Millisecond
+		shutdownPollIntervalMax := 500 * time.Millisecond
+		nextPollInterval := func() time.Duration {
+			interval := pollIntervalBase + time.Duration(rand.Intn(int(pollIntervalBase/10)))
+			pollIntervalBase *= 2
+			if pollIntervalBase > shutdownPollIntervalMax {
+				pollIntervalBase = shutdownPollIntervalMax
+			}
+			return interval
+		}
+		timer := time.NewTimer(nextPollInterval())
+		callbackDone, start := false, time.Now().Unix()
+		go func() {
+			log.Info("[Engine] call destoryCallback...")
+			destoryCallback()
+			callbackDone = true
+			log.Info("[Engine] call destoryCallback done")
+		}()
+		for {
+			if callbackDone { //等待 destoryCallback 完成
+				return nil
+			}
+			<-timer.C
+			if time.Now().Unix()-start > int64(waitMaxSecond) {
+				return fmt.Errorf("wait destoryCallback time out")
+			}
+			timer.Reset(nextPollInterval())
+		}
+	}
+	return nil
 }
