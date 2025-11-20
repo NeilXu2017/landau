@@ -2,11 +2,13 @@ package test
 
 import (
 	"encoding/json"
+	"net/http"
 	"time"
 
 	"google.golang.org/grpc"
 
 	"github.com/NeilXu2017/landau/log"
+	"github.com/NeilXu2017/landau/prometheus"
 	"github.com/NeilXu2017/landau/util"
 
 	"github.com/NeilXu2017/landau/api"
@@ -89,6 +91,44 @@ func CheckEngine() {
 			log.Info("my DestoryCallback done")
 		},
 	}
+	prometheus.SetExtraLabel([]string{"module", "data_op"}, func(action, url string, r *http.Request, rsp interface{}, c *gin.Context) []string {
+		m, op := "", ""
+		ActionModule := map[string]string{
+			"Login":         "User",
+			"Rand":          "Util",
+			"LongTimerTask": "Disk",
+		}
+		UrlModule := map[string]string{
+			"/LearnCode":     "Eip",
+			"/LongTimerTask": "Disk",
+		}
+		ActionOp := map[string]string{
+			"Login":         "List",
+			"Rand":          "Create",
+			"LongTimerTask": "Delete",
+		}
+		UrlOp := map[string]string{
+			"/LearnCode":     "Create",
+			"/LongTimerTask": "Delete",
+		}
+		if v, ok := ActionModule[action]; ok {
+			m = v
+		}
+		if m == "" {
+			if v, ok := UrlModule[url]; ok {
+				m = v
+			}
+		}
+		if v, ok := ActionOp[action]; ok {
+			op = v
+		}
+		if op == "" {
+			if v, ok := UrlOp[url]; ok {
+				op = v
+			}
+		}
+		return []string{m, op}
+	})
 	s.Start()
 }
 

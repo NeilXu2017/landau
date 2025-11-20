@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -18,6 +19,7 @@ type (
 		Help   string
 		Enable bool
 	}
+	GetExtraLabelValueFunc func(string, string, *http.Request, interface{}, *gin.Context) []string
 )
 
 var (
@@ -28,6 +30,8 @@ var (
 	_metricUri                  = "metrics"                                                             //metric handle 地址
 	_pprofUri                   = "pprof"                                                               //pprof handle 地址
 	_VariableLabels             = []string{"ret_code", "action", "method", "uri", "service", "node_id"} //缺省variable label tag
+	_ExtraLabels                = []string{}                                                            //extra lables
+	_GetExtraLabelValue         GetExtraLabelValueFunc                                                  //func of extra lable value
 	customPrometheusCollector   []prometheus.Collector
 	_DefaultPrometheusCollector = []DescTag{
 		{
@@ -57,6 +61,10 @@ func SetNamespace(namespace string) { _namespace = namespace }       //从Landau
 func SetNodeId(nodeId string)       { _node_id = nodeId }            //设置 node id,listener 地址
 func SetMetricsUri(uri string)      { _metricUri = uri }             //修改默认的 uri 地址 需要在 LandauServer.Start()前调用
 func SetPprofUri(uri string)        { _pprofUri = uri }              //修改默认的 uri 地址 需要在 LandauServer.Start()前调用
+func SetExtraLabel(extraLabe []string, f GetExtraLabelValueFunc) { //设置extra label & get extra label value function 需要在 LandauServer.Start()前调用
+	_ExtraLabels = extraLabe
+	_GetExtraLabelValue = f
+}
 
 // SetVariableLabels 设置内置3个变量Tag名称(需要按照顺序修改):默认是 ret_code,action,method和uri 需要在 LandauServer.Start()前调用
 func SetVariableLabels(labels ...string) {
@@ -100,12 +108,16 @@ func StartApiMetric() {
 			}
 		case 1:
 			if dc.Enable {
-				reqCount = prometheus.NewCounterVec(prometheus.CounterOpts{Namespace: _namespace, Name: dc.Name, Help: dc.Help}, _VariableLabels)
+				labelNames := _VariableLabels
+				labelNames = append(labelNames, _ExtraLabels...)
+				reqCount = prometheus.NewCounterVec(prometheus.CounterOpts{Namespace: _namespace, Name: dc.Name, Help: dc.Help}, labelNames)
 				pcs = append(pcs, reqCount)
 			}
 		case 2:
 			if dc.Enable {
-				reqDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{Namespace: _namespace, Name: dc.Name, Help: dc.Help}, _VariableLabels)
+				labelNames := _VariableLabels
+				labelNames = append(labelNames, _ExtraLabels...)
+				reqDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{Namespace: _namespace, Name: dc.Name, Help: dc.Help}, labelNames)
 				pcs = append(pcs, reqDuration)
 			}
 		}
@@ -123,15 +135,24 @@ func StartApiMetric() {
 }
 
 // UpdateApiMetric 框架调用,记录指标
-func UpdateApiMetric(code int, action string, tStart time.Time, r *http.Request, uri string) {
+func UpdateApiMetric(code int, action string, tStart time.Time, r *http.Request, uri string, extraValues []string) {
 	if uri == "" {
 		uri = r.URL.Path
 	}
 	lvs := []string{strconv.Itoa(code), action, r.Method, uri, _namespace, _node_id}
+	lvs = append(lvs, extraValues...)
 	if reqCount != nil {
 		reqCount.WithLabelValues(lvs...).Inc()
 	}
 	if reqDuration != nil {
 		reqDuration.WithLabelValues(lvs...).Observe(time.Since(tStart).Seconds())
 	}
+}
+
+// Extra lable value 框架调用,获取extra lable value
+func GetExtraLabelValue(action string, url string, r *http.Request, rsp interface{}, c *gin.Context) []string {
+	if _GetExtraLabelValue != nil {
+		return _GetExtraLabelValue(action, url, r, rsp, c)
+	}
+	return []string{}
 }

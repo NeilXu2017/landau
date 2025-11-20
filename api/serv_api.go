@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/NeilXu2017/landau/data"
 	"io"
 	"net/http"
 	"reflect"
@@ -12,6 +11,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/NeilXu2017/landau/data"
 
 	"github.com/NeilXu2017/landau/log"
 	"github.com/NeilXu2017/landau/prometheus"
@@ -453,7 +454,8 @@ func httpHandleProxy(c *gin.Context) {
 					strResponse = fmt.Sprintf("%v", response)
 				}
 				log.Info2(a.logger, "[%s]\t[%s]\t%s\tRequest:%s\tResponse:%v", urlPath, time.Since(start), strCustomLogTag, "{}", strResponse)
-				prometheus.UpdateApiMetric(getCodeFromInterface(response), "", start, c.Request, "")
+				extraLabelValues := prometheus.GetExtraLabelValue("", urlPath, c.Request, response, c)
+				prometheus.UpdateApiMetric(getCodeFromInterface(response), "", start, c.Request, urlPath, extraLabelValues)
 				return
 			}
 		}
@@ -545,7 +547,9 @@ func httpHandleProxy(c *gin.Context) {
 			}
 		}
 		log.Info2(apiLogger, "[%s]\t[%s]\t%s\tRequest:%s\tResponse:%v", urlPath, time.Since(start), strCustomLogTag, requestParamLog, urlLogResponse(strResponse))
-		prometheus.UpdateApiMetric(getCodeFromInterface(response), getActionFromInterface(param), start, c.Request, "")
+		pAction := getActionFromInterface(param)
+		extraLabelValues := prometheus.GetExtraLabelValue(pAction, urlPath, c.Request, response, c)
+		prometheus.UpdateApiMetric(getCodeFromInterface(response), pAction, start, c.Request, "", extraLabelValues)
 	}
 }
 

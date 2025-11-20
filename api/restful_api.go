@@ -179,7 +179,9 @@ func restFullHttpHandleProxy(c *gin.Context) {
 			strResponse = fmt.Sprintf("%v", response)
 		}
 		log.Info2(defaultAPILogger, "[%s]\t[%s]\t%s\tRequest:%s\tResponse:%v", urlPath, time.Since(start), strCustomLogTag, requestParamLog, defaultLogResponse(strResponse))
-		prometheus.UpdateApiMetric(getCodeFromInterface(response), getActionFromInterface(param), start, c.Request, a.Url)
+		pAction := getActionFromInterface(param)
+		extraLabelValues := prometheus.GetExtraLabelValue(pAction, a.Url, c.Request, response, c)
+		prometheus.UpdateApiMetric(getCodeFromInterface(response), pAction, start, c.Request, a.Url, extraLabelValues)
 	}
 }
 
