@@ -27,6 +27,7 @@ type (
 		HttpCodeStatus      string
 		UrlRegex            *regexp.Regexp
 		HttpMethod          string
+		InnerAPICode        string
 	}
 )
 
@@ -34,16 +35,22 @@ var (
 	restFulHttpEntry                = make(map[string]_RESTFulApiEntry)
 	replaceDefaultRestfulBindError  bool
 	defaultRestfulBindErrorResponse interface{}
+	defaultInnerAPICodeFieldName    = "InnerApiCode"
 )
 
 func AddRESTFulAPIHttpHandle(urlPath string, newRequesterParameter HTTPRequestParameter, handleFunc HTTPHandleFunc) {
-	AddRESTFulAPIHttpHandle3(urlPath, newRequesterParameter, handleFunc, "", "")
+	AddRESTFulAPIHttpHandle4(urlPath, newRequesterParameter, handleFunc, "", "", defaultInnerAPICodeFieldName)
 }
 
 func AddRESTFulAPIHttpHandle2(urlPath string, newRequesterParameter HTTPRequestParameter, handleFunc HTTPHandleFunc, httpCodeFieldName string) {
-	AddRESTFulAPIHttpHandle3(urlPath, newRequesterParameter, handleFunc, httpCodeFieldName, "")
+	AddRESTFulAPIHttpHandle4(urlPath, newRequesterParameter, handleFunc, httpCodeFieldName, "", defaultInnerAPICodeFieldName)
 }
+
 func AddRESTFulAPIHttpHandle3(urlPath string, newRequesterParameter HTTPRequestParameter, handleFunc HTTPHandleFunc, httpCodeFieldName string, httpMethod string) {
+	AddRESTFulAPIHttpHandle4(urlPath, newRequesterParameter, handleFunc, httpCodeFieldName, httpMethod, defaultInnerAPICodeFieldName)
+}
+
+func AddRESTFulAPIHttpHandle4(urlPath string, newRequesterParameter HTTPRequestParameter, handleFunc HTTPHandleFunc, httpCodeFieldName string, httpMethod string, innerAPICodeFieldName string) {
 	urls, id := strings.Split(urlPath, "/"), ""
 	var keyUrl []string
 	for _, u := range urls {
@@ -63,6 +70,7 @@ func AddRESTFulAPIHttpHandle3(urlPath string, newRequesterParameter HTTPRequestP
 		HttpCodeStatus:      httpCodeFieldName,
 		UrlRegex:            regexp.MustCompile(fmt.Sprintf("^%s$", strings.Join(keyUrl, "/"))),
 		HttpMethod:          strings.ToUpper(httpMethod),
+		InnerAPICode:        innerAPICodeFieldName,
 	}
 }
 
@@ -181,7 +189,7 @@ func restFullHttpHandleProxy(c *gin.Context) {
 		log.Info2(defaultAPILogger, "[%s]\t[%s]\t%s\tRequest:%s\tResponse:%v", urlPath, time.Since(start), strCustomLogTag, requestParamLog, defaultLogResponse(strResponse))
 		pAction := getActionFromInterface(param)
 		extraLabelValues := prometheus.GetExtraLabelValue(pAction, a.Url, c.Request, response, c)
-		prometheus.UpdateApiMetric(getCodeFromInterface(response), pAction, start, c.Request, a.Url, extraLabelValues)
+		prometheus.UpdateApiMetric(getCodeFromInterface2(response, a.InnerAPICode), pAction, start, c.Request, a.Url, extraLabelValues)
 	}
 }
 

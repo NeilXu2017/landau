@@ -614,8 +614,15 @@ func getActionFromInterface(v interface{}) string {
 }
 
 func getCodeFromInterface(v interface{}) int {
+	return getCodeFromInterface2(v, "Code")
+}
+
+func getCodeFromInterface2(v interface{}, fieldName string) int {
+	if fieldName == "" {
+		fieldName = "Code"
+	}
 	if gH, ok := v.(gin.H); ok {
-		if v, ok := gH["Code"]; ok {
+		if v, ok := gH[fieldName]; ok {
 			return _getIntValueFromInterface(v)
 		}
 	}
@@ -623,7 +630,7 @@ func getCodeFromInterface(v interface{}) int {
 	if val.Kind() == reflect.Struct {
 		typ := reflect.TypeOf(v)
 		for i := 0; i < typ.NumField(); i++ {
-			if typeField := typ.Field(i); typeField.Name == "Code" {
+			if typeField := typ.Field(i); typeField.Name == fieldName {
 				codeVal := val.Field(i)
 				switch codeVal.Kind() {
 				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
