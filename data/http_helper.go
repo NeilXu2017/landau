@@ -57,6 +57,7 @@ type (
 		isPrimaryAddress           bool
 		disableAssignSourceIp      bool   //是否指定源IP
 		requestHost                string //设置 request.Host
+		dialTimeout                int    //连接超时时间,默认30
 	}
 	_HttpCookieJar struct {
 		cookies []*http.Cookie
@@ -102,6 +103,7 @@ func NewHTTPHelper(options ...HTTPHelperOptionFunc) (*HTTPHelper, error) {
 		appendServiceId:            true,
 		disableAssignSourceIp:      false,
 		isPrimaryAddress:           true,
+		dialTimeout:                30,
 	}
 	for _, option := range options {
 		if err := option(c); err != nil {
@@ -401,6 +403,13 @@ func SetHTTPRequestHost(host string) HTTPHelperOptionFunc {
 	}
 }
 
+func SetHTTPDialTimeout(timeout int) HTTPHelperOptionFunc {
+	return func(c *HTTPHelper) error {
+		c.dialTimeout = timeout
+		return nil
+	}
+}
+
 func (c *_HttpCookieJar) SetCookies(u *url.URL, cookies []*http.Cookie) {
 	c.cookies = cookies
 	c.url = u
@@ -486,7 +495,7 @@ func (c *HTTPHelper) Call() (string, error) {
 	transport := &http.Transport{
 		Proxy: nil, //http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
+			Timeout:   time.Duration(c.dialTimeout) * time.Second,
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
 		ForceAttemptHTTP2:     true,
@@ -506,7 +515,7 @@ func (c *HTTPHelper) Call() (string, error) {
 			localAddr, _ = net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:0", LocalSecondaryAddress))
 		}
 		transport.DialContext = (&net.Dialer{
-			Timeout:   30 * time.Second,
+			Timeout:   time.Duration(c.dialTimeout) * time.Second,
 			KeepAlive: 30 * time.Second,
 			LocalAddr: localAddr,
 		}).DialContext
@@ -649,7 +658,7 @@ func (c *HTTPHelper) Upload(fileFieldName string, filePath string) (string, erro
 		client.Transport = &http.Transport{
 			Proxy: nil, // http.ProxyFromEnvironment,
 			DialContext: (&net.Dialer{
-				Timeout:   30 * time.Second,
+				Timeout:   time.Duration(c.dialTimeout) * time.Second,
 				KeepAlive: 30 * time.Second,
 			}).DialContext,
 			ForceAttemptHTTP2:     true,
