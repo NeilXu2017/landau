@@ -58,6 +58,8 @@ type (
 		disableAssignSourceIp      bool   //是否指定源IP
 		requestHost                string //设置 request.Host
 		dialTimeout                int    //连接超时时间,默认30
+		retryCount                 int    //重试次数
+		retryDelay                 []int  //重试间隔时间,单位秒
 	}
 	_HttpCookieJar struct {
 		cookies []*http.Cookie
@@ -79,6 +81,7 @@ const (
 var (
 	LocalPrimaryAddress   = ""
 	LocalSecondaryAddress = ""
+	defaultRetryDelay     = []int{2, 2, 1} //默认重试间隔,第1次间隔2秒, 第2次间隔2秒,后续每次间隔1秒
 )
 
 // NewHTTPHelper 构造HTTPHelper实例
@@ -104,6 +107,8 @@ func NewHTTPHelper(options ...HTTPHelperOptionFunc) (*HTTPHelper, error) {
 		disableAssignSourceIp:      false,
 		isPrimaryAddress:           true,
 		dialTimeout:                30,
+		retryCount:                 0,
+		retryDelay:                 defaultRetryDelay,
 	}
 	for _, option := range options {
 		if err := option(c); err != nil {
@@ -410,6 +415,19 @@ func SetHTTPDialTimeout(timeout int) HTTPHelperOptionFunc {
 	}
 }
 
+func SetHTTPRetryCount(retryCount int) HTTPHelperOptionFunc {
+	return func(c *HTTPHelper) error {
+		c.retryCount = retryCount
+		return nil
+	}
+}
+func SetHTTPRetryDelay(retryDelay []int) HTTPHelperOptionFunc {
+	return func(c *HTTPHelper) error {
+		c.retryDelay = retryDelay
+		return nil
+	}
+}
+
 func (c *_HttpCookieJar) SetCookies(u *url.URL, cookies []*http.Cookie) {
 	c.cookies = cookies
 	c.url = u
@@ -588,7 +606,23 @@ func (c *HTTPHelper) Call() (string, error) {
 func (c *HTTPHelper) Call2(responseObject interface{}) error {
 	response, err := c.Call()
 	if err != nil {
-		return err
+		retryOk := false
+		if c.retryCount > 0 && len(c.retryDelay) > 0 { //自动重试
+			for i := 0; i < c.retryCount; i++ {
+				if i >= len(c.retryDelay) {
+					time.Sleep(time.Second * time.Duration(c.retryDelay[len(c.retryDelay)-1]))
+				} else {
+					time.Sleep(time.Second * time.Duration(c.retryDelay[i]))
+				}
+				if response, err = c.Call(); err == nil {
+					retryOk = true
+					break
+				}
+			}
+		}
+		if !retryOk {
+			return err
+		}
 	}
 	return json.Unmarshal([]byte(response), &responseObject)
 }
