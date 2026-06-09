@@ -60,6 +60,8 @@ type (
 		dialTimeout                int    //连接超时时间,默认30
 		retryCount                 int    //重试次数
 		retryDelay                 []int  //重试间隔时间,单位秒
+		basicAuthUserName          string //basic auth
+		basicAuthPassword          string //basic auth
 	}
 	_HttpCookieJar struct {
 		cookies []*http.Cookie
@@ -427,6 +429,13 @@ func SetHTTPRetryDelay(retryDelay []int) HTTPHelperOptionFunc {
 		return nil
 	}
 }
+func SetHTTPBasicAuth(userName, userPwd string) HTTPHelperOptionFunc {
+	return func(c *HTTPHelper) error {
+		c.basicAuthUserName = userName
+		c.basicAuthPassword = userPwd
+		return nil
+	}
+}
 
 func (c *_HttpCookieJar) SetCookies(u *url.URL, cookies []*http.Cookie) {
 	c.cookies = cookies
@@ -565,6 +574,9 @@ func (c *HTTPHelper) Call() (string, error) {
 	if c.requestHost != "" {
 		req.Host = c.requestHost
 	}
+	if c.basicAuthUserName != "" && c.basicAuthPassword != "" {
+		req.SetBasicAuth(c.basicAuthUserName, c.basicAuthPassword)
+	}
 	response, responseErr := client.Do(req)
 	c.Response = response
 	if responseErr != nil {
@@ -686,6 +698,9 @@ func (c *HTTPHelper) Upload(fileFieldName string, filePath string) (string, erro
 	}
 	if c.requestHost != "" {
 		r.Host = c.requestHost
+	}
+	if c.basicAuthUserName != "" && c.basicAuthPassword != "" {
+		r.SetBasicAuth(c.basicAuthUserName, c.basicAuthPassword)
 	}
 	client := &http.Client{}
 	if c.insecureSkipVerify {
