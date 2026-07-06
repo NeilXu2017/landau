@@ -1,6 +1,8 @@
 package entry
 
 import (
+	"crypto/tls"
+
 	"github.com/NeilXu2017/landau/api"
 	"github.com/NeilXu2017/landau/util"
 	"github.com/gin-gonic/gin"
@@ -57,6 +59,10 @@ type (
 		ReceivedServiceCallback           func(string, string) bool                       //收到服务推送地址 回调设置 参数 service name, service url address
 		ExcludeInitServiceDisabled        []string                                        //不受 InitServiceDisabled 影响的请求 action 或者 url
 		DestoryCallback                   func()                                          //stoped 之前调用
+		TLSCertFile                       string                                          //HTTP服务的TLS证书文件; 与 TLSKeyFile 同时设置时,HTTP服务以 HTTPS(TLS)方式提供
+		TLSKeyFile                        string                                          //HTTP服务的TLS私钥文件; 与 TLSCertFile 同时设置时生效
+		TLSClientCAFile                   string                                          //客户端证书CA文件; 设置后启用双向TLS(mTLS),要求并校验客户端证书(RequireAndVerifyClientCert),从而在传输层确立调用方身份
+		TLSConfig                         *tls.Config                                     //完全自定义的 tls.Config; 设置后优先生效,忽略上面的 TLSCertFile/TLSKeyFile/TLSClientCAFile
 	}
 )
 

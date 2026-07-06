@@ -2,6 +2,8 @@ package entry
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"flag"
 	"fmt"
@@ -175,6 +177,20 @@ func (c *LandauServer) Start() {
 				go data.MonitorServiceHealthConfigs()
 				go data.StartHealthChecking()
 			}
+			// TLS/mTLS: 构造一次服务端 tls.Config,供下面 primary/secondary 两个
+			// 监听共用。加载失败视为致命错误 —— 配置了 TLS 却起不来, 不能静默
+			// 退回明文。tlsCfg 为 nil 表示未配置 TLS, 与原行为完全一致。
+			tlsCfg, tlsErr := c.buildServerTLSConfig()
+			if tlsErr != nil {
+				sysLog.Fatalf("[HTTP] build TLS config error,err:%v", tlsErr)
+			}
+			if tlsCfg != nil {
+				scheme := "TLS"
+				if tlsCfg.ClientAuth == tls.RequireAndVerifyClientCert {
+					scheme = "mTLS"
+				}
+				log.Info("[HTTP] %s enabled", scheme)
+			}
 			log.Info("[HTTP] Listen address:%s", address)
 			if secondaryAddress != "" {
 				log.Info("[HTTP] Listen secondary address:%s", secondaryAddress)
@@ -183,25 +199,29 @@ func (c *LandauServer) Start() {
 				if secondaryAddress != "" {
 					secondSrv = &http.Server{Addr: secondaryAddress, Handler: c.ginRouter}
 					go func() {
-						if err := secondSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+						if err := listenAndServe(secondSrv, tlsCfg); err != nil && !errors.Is(err, http.ErrServerClosed) {
 							sysLog.Fatalf("[HTTP] Start gin server error,err:%v", err)
 						}
 					}()
 				}
-				if err := c.ginRouter.Run(address); err != nil {
+				// 原先此处用 c.ginRouter.Run(address)(仅支持明文)。改为显式
+				// http.Server 以便统一走 listenAndServe,支持 TLS/mTLS;明文行为
+				// 与 gin.Run 等价(内部即 http.ListenAndServe(addr, engine))。
+				srv = &http.Server{Addr: address, Handler: c.ginRouter}
+				if err := listenAndServe(srv, tlsCfg); err != nil && !errors.Is(err, http.ErrServerClosed) {
 					sysLog.Fatalf("[HTTP] Start gin server error,err:%v", err)
 				}
 			} else {
 				srv = &http.Server{Addr: address, Handler: c.ginRouter}
 				go func() {
-					if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					if err := listenAndServe(srv, tlsCfg); err != nil && !errors.Is(err, http.ErrServerClosed) {
 						sysLog.Fatalf("[HTTP] Start gin server error,err:%v", err)
 					}
 				}()
 				if secondaryAddress != "" {
 					secondSrv = &http.Server{Addr: secondaryAddress, Handler: c.ginRouter}
 					go func() {
-						if err := secondSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+						if err := listenAndServe(secondSrv, tlsCfg); err != nil && !errors.Is(err, http.ErrServerClosed) {
 							sysLog.Fatalf("[HTTP] Start gin server error,err:%v", err)
 						}
 					}()
@@ -211,6 +231,66 @@ func (c *LandauServer) Start() {
 		}
 	}
 	log.Close()
+}
+
+// buildServerTLSConfig 根据 LandauServer 的 TLS 相关字段构造服务端 tls.Config.
+//
+//	返回 (nil,nil)         : 未配置任何 TLS 字段, HTTP 服务以明文方式提供(向后兼容)
+//	返回 (非nil,nil)       : 启用 TLS(或 mTLS)
+//	返回 (nil,非nil)       : 配置有误(字段不成对 / 证书/CA 加载失败),调用方应视为致命错误
+//
+// 误配保护:TLSCertFile 与 TLSKeyFile 必须同时设置,否则报错而非静默退回明文
+// (常见坑:只写了一半就以为开了 TLS)。同理,单独设置 TLSClientCAFile 却没有
+// 服务端证书也会被判为误配。
+//
+// 当 TLSClientCAFile 被设置时, 启用双向TLS: 要求并校验客户端证书,
+// 校验通过后可在 handler 中通过 request.TLS.PeerCertificates 得到已验证的
+// 调用方身份(例如证书 CN)。
+func (c *LandauServer) buildServerTLSConfig() (*tls.Config, error) {
+	if c.TLSConfig != nil {
+		return c.TLSConfig, nil
+	}
+	// 三个字段都未设 → 明文(与改动前行为完全一致)。
+	if c.TLSCertFile == "" && c.TLSKeyFile == "" && c.TLSClientCAFile == "" {
+		return nil, nil
+	}
+	// 设置了部分 TLS 字段: 服务端证书/私钥必须成对出现。缺一即误配 —— 直接
+	// 报错(调用方会 Fatal),不允许"半配置"静默降级为明文。这也覆盖了
+	// "只设了 TLSClientCAFile 却没有服务端证书" 的情况。
+	if c.TLSCertFile == "" || c.TLSKeyFile == "" {
+		return nil, fmt.Errorf("TLS misconfigured: TLSCertFile and TLSKeyFile must both be set (cert=%q key=%q clientCA=%q)", c.TLSCertFile, c.TLSKeyFile, c.TLSClientCAFile)
+	}
+	cert, err := tls.LoadX509KeyPair(c.TLSCertFile, c.TLSKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("load server keypair: %w", err)
+	}
+	cfg := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+	}
+	if c.TLSClientCAFile != "" {
+		caPEM, err := os.ReadFile(c.TLSClientCAFile)
+		if err != nil {
+			return nil, fmt.Errorf("read client CA %s: %w", c.TLSClientCAFile, err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caPEM) {
+			return nil, fmt.Errorf("client CA %s: no certificates parsed", c.TLSClientCAFile)
+		}
+		cfg.ClientCAs = pool
+		cfg.ClientAuth = tls.RequireAndVerifyClientCert
+	}
+	return cfg, nil
+}
+
+// listenAndServe 按是否配置了 TLS 选择 ListenAndServeTLS / ListenAndServe.
+// 证书已在 srv.TLSConfig 中, 故 ListenAndServeTLS 的文件参数为空。
+func listenAndServe(srv *http.Server, tlsCfg *tls.Config) error {
+	if tlsCfg != nil {
+		srv.TLSConfig = tlsCfg
+		return srv.ListenAndServeTLS("", "")
+	}
+	return srv.ListenAndServe()
 }
 
 // StartCronJobMode 作为普通程序启动(仅仅运行cron job)
