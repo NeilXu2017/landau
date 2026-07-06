@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -53,7 +54,11 @@ type (
 		logSignature               string
 		debugResponseHeaderField   []string
 		insecureSkipVerify         bool
-		appendServiceId            bool //add head tag
+		clientCertFile             string // mTLS: 客户端证书文件, 与 clientKeyFile 同时设置时随请求出示,向服务端证明调用方身份
+		clientKeyFile              string // mTLS: 客户端私钥文件
+		rootCAFile                 string // 校验服务端证书所用的根CA文件; 设置后用它替代系统根CA(常用于自建平台CA)
+		tlsServerName              string // 覆盖 TLS 校验/SNI 使用的服务器名; 当以裸IP拨号但证书签发给某逻辑名时需要
+		appendServiceId            bool   //add head tag
 		isPrimaryAddress           bool
 		disableAssignSourceIp      bool   //是否指定源IP
 		requestHost                string //设置 request.Host
@@ -381,6 +386,66 @@ func SetHTTPInsecureSkipVerify(insecureSkipVerify bool) HTTPHelperOptionFunc {
 	}
 }
 
+// SetHTTPClientCertificate 设置客户端证书/私钥文件, 用于双向TLS(mTLS):
+// 请求握手时向服务端出示该证书以证明调用方身份。需要服务端启用了 mTLS
+// (LandauServer.TLSClientCAFile), 且该证书由服务端信任的CA签发。
+func SetHTTPClientCertificate(certFile, keyFile string) HTTPHelperOptionFunc {
+	return func(c *HTTPHelper) error {
+		c.clientCertFile = certFile
+		c.clientKeyFile = keyFile
+		return nil
+	}
+}
+
+// SetHTTPRootCA 设置校验服务端证书所用的根CA文件。用于服务端使用自建平台CA
+// (而非公共CA)签发证书的场景。设置后不再回退到系统根CA。
+func SetHTTPRootCA(caFile string) HTTPHelperOptionFunc {
+	return func(c *HTTPHelper) error {
+		c.rootCAFile = caFile
+		return nil
+	}
+}
+
+// SetHTTPTLSServerName 覆盖 TLS 校验/SNI 使用的服务器名。当以裸IP拨号、
+// 而服务端证书签发给某个逻辑名(DNS/SAN)时需要设置为该逻辑名。
+func SetHTTPTLSServerName(serverName string) HTTPHelperOptionFunc {
+	return func(c *HTTPHelper) error {
+		c.tlsServerName = serverName
+		return nil
+	}
+}
+
+// buildTLSClientConfig 依据 insecureSkipVerify / 客户端证书 / 根CA / ServerName
+// 组合出客户端 tls.Config。返回 (nil,nil) 表示无需自定义 TLS(走默认)。
+func (c *HTTPHelper) buildTLSClientConfig() (*tls.Config, error) {
+	if !c.insecureSkipVerify && c.clientCertFile == "" && c.rootCAFile == "" && c.tlsServerName == "" {
+		return nil, nil
+	}
+	cfg := &tls.Config{
+		InsecureSkipVerify: c.insecureSkipVerify, //nolint:gosec // 由调用方显式开启
+		ServerName:         c.tlsServerName,
+	}
+	if c.clientCertFile != "" && c.clientKeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(c.clientCertFile, c.clientKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("load client keypair: %w", err)
+		}
+		cfg.Certificates = []tls.Certificate{cert}
+	}
+	if c.rootCAFile != "" {
+		caPEM, err := os.ReadFile(c.rootCAFile)
+		if err != nil {
+			return nil, fmt.Errorf("read root CA %s: %w", c.rootCAFile, err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caPEM) {
+			return nil, fmt.Errorf("root CA %s: no certificates parsed", c.rootCAFile)
+		}
+		cfg.RootCAs = pool
+	}
+	return cfg, nil
+}
+
 func SetHTTPServiceName(serviceName string) HTTPHelperOptionFunc {
 	return func(c *HTTPHelper) error {
 		c.serviceName = serviceName
@@ -531,8 +596,10 @@ func (c *HTTPHelper) Call() (string, error) {
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
-	if c.insecureSkipVerify {
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	if tlsCfg, tlsErr := c.buildTLSClientConfig(); tlsErr != nil {
+		return "", tlsErr
+	} else if tlsCfg != nil {
+		transport.TLSClientConfig = tlsCfg
 	}
 	if !c.disableAssignSourceIp && (LocalPrimaryAddress != "" && LocalSecondaryAddress != "") {
 		var localAddr *net.TCPAddr
@@ -703,7 +770,11 @@ func (c *HTTPHelper) Upload(fileFieldName string, filePath string) (string, erro
 		r.SetBasicAuth(c.basicAuthUserName, c.basicAuthPassword)
 	}
 	client := &http.Client{}
-	if c.insecureSkipVerify {
+	tlsCfg, tlsErr := c.buildTLSClientConfig()
+	if tlsErr != nil {
+		return "", tlsErr
+	}
+	if tlsCfg != nil {
 		client.Transport = &http.Transport{
 			Proxy: nil, // http.ProxyFromEnvironment,
 			DialContext: (&net.Dialer{
@@ -715,7 +786,7 @@ func (c *HTTPHelper) Upload(fileFieldName string, filePath string) (string, erro
 			IdleConnTimeout:       90 * time.Second,
 			TLSHandshakeTimeout:   10 * time.Second,
 			ExpectContinueTimeout: 1 * time.Second,
-			TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig:       tlsCfg,
 		}
 	}
 	if c.delegatedHTTPRequest != nil {
