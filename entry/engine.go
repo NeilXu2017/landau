@@ -1,0 +1,525 @@
+package entry
+
+import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
+	"flag"
+	"fmt"
+	sysLog "log"
+	"math/rand"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"os/signal"
+	"runtime"
+	"strconv"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/NeilXu2017/landau/api"
+	"github.com/NeilXu2017/landau/data"
+	"github.com/NeilXu2017/landau/log"
+	"github.com/NeilXu2017/landau/prometheus"
+	"github.com/NeilXu2017/landau/util"
+	"github.com/NeilXu2017/landau/version"
+
+	"github.com/gin-gonic/gin"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
+)
+
+var (
+	srv             *http.Server                                        //saved to be used in graceful stopping
+	secondSrv       *http.Server                                        //saved to be used in graceful stopping
+	grpcServer      *grpc.Server                                        //saved to be used in graceful stopping
+	reload          = flag.Bool("reload", false, "Signal reload event") //reload cmd
+	reloadCallback  func()                                              //reload 回调
+	destoryCallback func()                                              //destory callback
+)
+
+// Start 服务启动入口,作为 web server 或 grpc server
+func (c *LandauServer) Start() {
+	flag.Parse()
+	if c.ParseArgs != nil {
+		c.ParseArgs()
+	}
+	version.ShowVersion()
+	if !c.DisableGracefulStopping && c.DynamicReloadConfig != nil {
+		reloadCallback = c.DynamicReloadConfig
+	}
+	if c.DestoryCallback != nil {
+		destoryCallback = c.DestoryCallback
+	}
+	makeReloadSignal()
+	log.LoadLogConfig(c.LogConfig, c.DefaultLoggerName)
+	if c.GinLoggerName != "" {
+		gin.DefaultWriter = log.NewConsoleLogger(c.GinLoggerName)
+		gin.DefaultErrorWriter = log.NewConsoleLogger(c.GinLoggerName)
+	}
+	if c.GinReleaseMode {
+		gin.SetMode(gin.ReleaseMode)
+	}
+	if c.CustomInit != nil {
+		c.CustomInit()
+	}
+	if c.HTTPServicePort > 0 || c.GRPCServicePort > 0 {
+		if c.GetCronTasks != nil {
+			p, jobs := c.GetCronTasks()
+			util.StartCronJob(p, jobs)
+		}
+		if c.GRPCServicePort > 0 {
+			c.grpcServer = grpc.NewServer()
+			grpcServer = c.grpcServer
+			c.RegisterGRPCHandle(c.grpcServer)
+			reflection.Register(c.grpcServer)
+			startGRPC := func() {
+				address := fmt.Sprintf("%s:%d", util.IPConvert(c.GRPCServiceAddress, util.IPV6Bracket), c.GRPCServicePort)
+				log.Info("[gRPC] Listen address:%s", address)
+				if gRPCListen, err := net.Listen("tcp", address); err == nil {
+					if serverErr := c.grpcServer.Serve(gRPCListen); serverErr != nil {
+						sysLog.Fatalf("[gRPC] Start gRPC server error,err:%v", serverErr)
+					}
+				} else {
+					sysLog.Fatalf("[gRPC] listen gRPC address error,err:%v", err)
+				}
+			}
+			if c.HTTPServicePort > 0 {
+				go startGRPC()
+			} else {
+				if c.DisableGracefulStopping {
+					startGRPC()
+				} else {
+					go startGRPC()
+					gracefulStop(c.GracefulTimeout)
+				}
+			}
+		}
+		if c.HTTPServicePort > 0 {
+			c.ginRouter = gin.Default()
+			if c.RegisterHTTPHandles != nil {
+				c.RegisterHTTPHandles()
+			}
+			if c.RegisterHTTPCustomHandles != nil {
+				c.RegisterHTTPCustomHandles(c.ginRouter)
+			}
+			if !c.DisableServiceHealthReceiver {
+				healthReceiverLog := func(response interface{}) string { return fmt.Sprintf("%v", response) }
+				api.AddExcludeServiceDisabled("ServiceHealthCheck")
+				api.AddExcludeServiceDisabled("/ServiceHealthCheck")
+				api.AddExcludeServiceDisabled("/output_keepalived_trace")
+				api.AddHTTPHandle("/ServiceHealthCheck", "ServiceHealthCheck", data.NewServiceHealthCheckRequest, data.DoHealthCheck, healthReceiverLog, "health_receiver")
+				c.ginRouter.GET("/output_keepalived_trace", data.OutputKeepaliveStatics)
+			}
+			api.DisableTraceServiceAddress = c.DisableTraceServiceAddress
+			api.EnableMonitorHttpAPI = c.EnableMonitorAPI
+			api.NotifyHttpAPIWeChatRobot = c.NotifyAPIWeChatRobot
+			data.ServiceName = c.ServiceName
+			api.ServiceDisabled = c.InitServiceDisabled
+			data.ReceivedServiceCallback = c.ReceivedServiceCallback
+			for _, d := range c.ExcludeInitServiceDisabled {
+				api.ExcludeInitServiceDisabled[d] = struct{}{}
+			}
+			api.SetPostBindingComplex(c.PostBindingComplex)
+			api.SetUnRegisterHandle(c.UnRegisterHTTPHandle)
+			api.RegisterHTTPHandle(c.ginRouter)
+			api.RegisterRestfulHTTPHandle(c.ginRouter)
+			api.SetHTTPCheckACL(c.HTTPNeedCheckACL, c.HTTPCheckACL)
+			api.SetHTTPCustomLogTag(c.HTTPEnableCustomLogTag, c.HTTPCustomLog)
+			api.SetHTTPAuditLog(c.HTTPAuditLog)
+			addr := c.HTTPServiceAddress
+			if c.DynamicHTTPServiceAddress != nil {
+				addr = c.DynamicHTTPServiceAddress()
+			}
+			prometheus.SetNamespace(c.PrometheusMetricNamespace)
+			prometheus.SetNodeId(c.PrometheusNodeId)
+			if c.PrometheusMetricHost != "" {
+				prometheus.SetServerHost(c.PrometheusMetricHost)
+			} else {
+				prometheus.SetServerHost(addr)
+			}
+			if c.PrometheusMetricPort > 0 {
+				prometheus.SetServerPort(c.PrometheusMetricPort)
+			} else {
+				prometheus.SetServerPort(c.HTTPServicePort + 3000)
+			}
+			if c.EnablePrometheusMetric {
+				go prometheus.StartApiMetric()
+			}
+			if addr != "" && addr != "0.0.0.0" && addr != "::" {
+				data.LocalPrimaryAddress = addr
+				log.Info("[LocalPrimaryAddress] %s", data.LocalPrimaryAddress)
+			}
+			address := fmt.Sprintf("%s:%d", util.IPConvert(addr, util.IPV6Bracket), c.HTTPServicePort)
+			data.ServiceAddress = address
+			secondaryAddress := ""
+			if c.SecondaryServiceAddress != "" {
+				secondaryAddress = fmt.Sprintf("%s:%d", util.IPConvert(c.SecondaryServiceAddress, util.IPV6Bracket), c.HTTPServicePort)
+				data.SecondaryServiceAddress = secondaryAddress
+				if c.SecondaryServiceAddress != "" && c.SecondaryServiceAddress != "0.0.0.0" && c.SecondaryServiceAddress != "::" {
+					data.LocalSecondaryAddress = c.SecondaryServiceAddress
+					log.Info("[LocalSecondaryAddress] %s", data.LocalSecondaryAddress)
+				}
+			}
+			if c.CheckServiceHealth != nil || c.CheckServiceHealth2 != nil {
+				if c.CheckServiceHealthPeriod > 0 {
+					data.MonitorServiceAddrPeriod = c.CheckServiceHealthPeriod
+				}
+				data.DisableAssignSourceIp = c.DisableCheckServiceHealthSourceIp
+				data.MonitorServiceAddrChange2 = c.CheckServiceHealth2
+				data.MonitorServiceAddrChange = c.CheckServiceHealth
+				data.RegisterServiceHealth()
+				go data.MonitorServiceHealthConfigs()
+				go data.StartHealthChecking()
+			}
+			// TLS/mTLS: 构造一次服务端 tls.Config,供下面 primary/secondary 两个
+			// 监听共用。加载失败视为致命错误 —— 配置了 TLS 却起不来, 不能静默
+			// 退回明文。tlsCfg 为 nil 表示未配置 TLS, 与原行为完全一致。
+			tlsCfg, tlsErr := c.buildServerTLSConfig()
+			if tlsErr != nil {
+				sysLog.Fatalf("[HTTP] build TLS config error,err:%v", tlsErr)
+			}
+			if tlsCfg != nil {
+				scheme := "TLS"
+				if tlsCfg.ClientAuth == tls.RequireAndVerifyClientCert {
+					scheme = "mTLS"
+				}
+				log.Info("[HTTP] %s enabled", scheme)
+			}
+			log.Info("[HTTP] Listen address:%s", address)
+			if secondaryAddress != "" {
+				log.Info("[HTTP] Listen secondary address:%s", secondaryAddress)
+			}
+			if c.DisableGracefulStopping {
+				if secondaryAddress != "" {
+					secondSrv = &http.Server{Addr: secondaryAddress, Handler: c.ginRouter}
+					go func() {
+						if err := listenAndServe(secondSrv, tlsCfg); err != nil && !errors.Is(err, http.ErrServerClosed) {
+							sysLog.Fatalf("[HTTP] Start gin server error,err:%v", err)
+						}
+					}()
+				}
+				// 原先此处用 c.ginRouter.Run(address)(仅支持明文)。改为显式
+				// http.Server 以便统一走 listenAndServe,支持 TLS/mTLS;明文行为
+				// 与 gin.Run 等价(内部即 http.ListenAndServe(addr, engine))。
+				srv = &http.Server{Addr: address, Handler: c.ginRouter}
+				if err := listenAndServe(srv, tlsCfg); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					sysLog.Fatalf("[HTTP] Start gin server error,err:%v", err)
+				}
+			} else {
+				srv = &http.Server{Addr: address, Handler: c.ginRouter}
+				go func() {
+					if err := listenAndServe(srv, tlsCfg); err != nil && !errors.Is(err, http.ErrServerClosed) {
+						sysLog.Fatalf("[HTTP] Start gin server error,err:%v", err)
+					}
+				}()
+				if secondaryAddress != "" {
+					secondSrv = &http.Server{Addr: secondaryAddress, Handler: c.ginRouter}
+					go func() {
+						if err := listenAndServe(secondSrv, tlsCfg); err != nil && !errors.Is(err, http.ErrServerClosed) {
+							sysLog.Fatalf("[HTTP] Start gin server error,err:%v", err)
+						}
+					}()
+				}
+				gracefulStop(c.GracefulTimeout)
+			}
+		}
+	}
+	log.Close()
+}
+
+// buildServerTLSConfig 根据 LandauServer 的 TLS 相关字段构造服务端 tls.Config.
+//
+//	返回 (nil,nil)         : 未配置任何 TLS 字段, HTTP 服务以明文方式提供(向后兼容)
+//	返回 (非nil,nil)       : 启用 TLS(或 mTLS)
+//	返回 (nil,非nil)       : 配置有误(字段不成对 / 证书/CA 加载失败),调用方应视为致命错误
+//
+// 误配保护:TLSCertFile 与 TLSKeyFile 必须同时设置,否则报错而非静默退回明文
+// (常见坑:只写了一半就以为开了 TLS)。同理,单独设置 TLSClientCAFile 却没有
+// 服务端证书也会被判为误配。
+//
+// 当 TLSClientCAFile 被设置时, 启用双向TLS: 要求并校验客户端证书,
+// 校验通过后可在 handler 中通过 request.TLS.PeerCertificates 得到已验证的
+// 调用方身份(例如证书 CN)。
+func (c *LandauServer) buildServerTLSConfig() (*tls.Config, error) {
+	if c.TLSConfig != nil {
+		return c.TLSConfig, nil
+	}
+	// 三个字段都未设 → 明文(与改动前行为完全一致)。
+	if c.TLSCertFile == "" && c.TLSKeyFile == "" && c.TLSClientCAFile == "" {
+		return nil, nil
+	}
+	// 设置了部分 TLS 字段: 服务端证书/私钥必须成对出现。缺一即误配 —— 直接
+	// 报错(调用方会 Fatal),不允许"半配置"静默降级为明文。这也覆盖了
+	// "只设了 TLSClientCAFile 却没有服务端证书" 的情况。
+	if c.TLSCertFile == "" || c.TLSKeyFile == "" {
+		return nil, fmt.Errorf("TLS misconfigured: TLSCertFile and TLSKeyFile must both be set (cert=%q key=%q clientCA=%q)", c.TLSCertFile, c.TLSKeyFile, c.TLSClientCAFile)
+	}
+	cert, err := tls.LoadX509KeyPair(c.TLSCertFile, c.TLSKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("load server keypair: %w", err)
+	}
+	cfg := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+	}
+	if c.TLSClientCAFile != "" {
+		caPEM, err := os.ReadFile(c.TLSClientCAFile)
+		if err != nil {
+			return nil, fmt.Errorf("read client CA %s: %w", c.TLSClientCAFile, err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caPEM) {
+			return nil, fmt.Errorf("client CA %s: no certificates parsed", c.TLSClientCAFile)
+		}
+		cfg.ClientCAs = pool
+		cfg.ClientAuth = tls.RequireAndVerifyClientCert
+	}
+	return cfg, nil
+}
+
+// listenAndServe 按是否配置了 TLS 选择 ListenAndServeTLS / ListenAndServe.
+// 证书已在 srv.TLSConfig 中, 故 ListenAndServeTLS 的文件参数为空。
+func listenAndServe(srv *http.Server, tlsCfg *tls.Config) error {
+	if tlsCfg != nil {
+		srv.TLSConfig = tlsCfg
+		return srv.ListenAndServeTLS("", "")
+	}
+	return srv.ListenAndServe()
+}
+
+// StartCronJobMode 作为普通程序启动(仅仅运行cron job)
+func (c *LandauServer) StartCronJobMode(gracefulTimeout uint64) {
+	flag.Parse()
+	if c.ParseArgs != nil {
+		c.ParseArgs()
+	}
+	version.ShowVersion()
+	if !c.DisableGracefulStopping && c.DynamicReloadConfig != nil {
+		reloadCallback = c.DynamicReloadConfig
+	}
+	if c.DestoryCallback != nil {
+		destoryCallback = c.DestoryCallback
+	}
+	makeReloadSignal()
+	log.LoadLogConfig(c.LogConfig, c.DefaultLoggerName)
+	if c.CustomInit != nil {
+		c.CustomInit()
+	}
+	if c.GetCronTasks != nil {
+		p, jobs := c.GetCronTasks()
+		util.StartCronJob(p, jobs)
+		if util.ScheduledJobCount > 0 {
+			log.Info("[CronJobMode] running...")
+			if gracefulTimeout == 0 {
+				gracefulTimeout = 60
+			}
+			gracefulStop(gracefulTimeout)
+		}
+	}
+	log.Close()
+}
+
+// StartNormalServerMode 作为普通服务程序启动,运行 mainEntry
+func (c *LandauServer) StartNormalServerMode(mainEntry func(), gracefulTimeout uint64) {
+	flag.Parse()
+	if c.ParseArgs != nil {
+		c.ParseArgs()
+	}
+	version.ShowVersion()
+	if !c.DisableGracefulStopping && c.DynamicReloadConfig != nil {
+		reloadCallback = c.DynamicReloadConfig
+	}
+	if c.DestoryCallback != nil {
+		destoryCallback = c.DestoryCallback
+	}
+	makeReloadSignal()
+	log.LoadLogConfig(c.LogConfig, c.DefaultLoggerName)
+	if c.CustomInit != nil {
+		c.CustomInit()
+	}
+	if c.GetCronTasks != nil {
+		p, jobs := c.GetCronTasks()
+		util.StartCronJob(p, jobs)
+	}
+	log.Info("[NormalServerMode] %v running...", mainEntry)
+	go mainEntry() //mainEntry 退出, 程序也不退出,等待信号退出
+	if gracefulTimeout == 0 {
+		gracefulTimeout = 60
+	}
+	gracefulStop(gracefulTimeout)
+	log.Close()
+}
+
+// StartNormalMode 作为普通服务程序启动
+func (c *LandauServer) StartNormalMode(mainEntry func()) {
+	flag.Parse()
+	if c.ParseArgs != nil {
+		c.ParseArgs()
+	}
+	version.ShowVersion()
+	log.LoadLogConfig(c.LogConfig, c.DefaultLoggerName)
+	if c.CustomInit != nil {
+		c.CustomInit()
+	}
+	log.Info("[NormalMode] %v running...", mainEntry)
+	mainEntry()
+	log.Close()
+}
+
+func gracefulStop(gracefulTimeout uint64) {
+	waitMaxSecond := gracefulTimeout
+	if waitMaxSecond == 0 {
+		waitMaxSecond = 60
+	}
+	waitingShutdownServer := func() {
+		wg := sync.WaitGroup{}
+		httpSrvShutdown := func() {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(waitMaxSecond))
+			defer cancel()
+			if srv != nil {
+				if err := srv.Shutdown(ctx); err != nil {
+					sysLog.Fatalf("[HTTP] Server Shutdown error,err:%v", err)
+				}
+			}
+		}
+		secondHttpSrvShutdown := func() {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(waitMaxSecond))
+			defer cancel()
+			if secondSrv != nil {
+				if err := secondSrv.Shutdown(ctx); err != nil {
+					sysLog.Fatalf("[HTTP] Server Shutdown error,err:%v", err)
+				}
+			}
+		}
+		cronJobShutdown := func() {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(waitMaxSecond))
+			defer cancel()
+			if err := util.CronJobShutdown(ctx); err != nil {
+				sysLog.Fatalf("[CronJobManager] Shutdown error,err:%v", err)
+			}
+		}
+		grpcSvrShutdown := func() {
+			defer wg.Done()
+			if grpcServer != nil {
+				grpcServer.GracefulStop()
+			}
+		}
+		appShutdown := func() {
+			defer wg.Done()
+			if err := appShutdownCallback(waitMaxSecond); err != nil {
+				sysLog.Fatalf("[appShutdownCallback] Shutdown error,err:%v", err)
+			}
+		}
+
+		wg.Add(5)
+		go httpSrvShutdown()
+		go secondHttpSrvShutdown()
+		go cronJobShutdown()
+		go grpcSvrShutdown()
+		go appShutdown()
+		data.NotifyCheckerShutdown()
+		wg.Wait()
+	}
+	monitorSignal := make(chan os.Signal)
+	if reloadCallback != nil {
+		signal.Notify(monitorSignal, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGUSR1)
+	} else {
+		signal.Notify(monitorSignal, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	}
+	for i := range monitorSignal {
+		switch i {
+		case syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT:
+			log.Info("[Engine] receive exit signal %s, Shutdown Server ...", i.String())
+			waitingShutdownServer()
+			log.Info("[Engine] Shutdown Server completed.")
+			return
+		case syscall.SIGUSR1:
+			log.Info("[Engine] receive usr1 signal, dispatch reload event now")
+			if reloadCallback != nil {
+				reloadCallback()
+			}
+		}
+	}
+}
+
+func makeReloadSignal() {
+	if *reload {
+		if pid := os.Getegid(); pid != -1 {
+			appName := os.Args[0]
+			if runtime.GOOS == "windows" {
+				appName = strings.Replace(appName, "\\", "/", -1)
+			}
+			if i := strings.LastIndex(appName, "/"); i > 0 {
+				appName = appName[i+1:]
+			}
+			appFullPath := os.Args[0]
+			cmd := exec.Command("ps", "-e")
+			if out, err := cmd.CombinedOutput(); err == nil {
+				processes := strings.Split(string(out), "\n")
+				for _, process := range processes {
+					if id, n, err := getProcIdName(process); err == nil && id != pid && (n == appName || n == appFullPath) {
+						_ = syscall.Kill(id, syscall.SIGUSR1)
+						break
+					}
+				}
+			}
+		}
+		os.Exit(0)
+	}
+}
+
+func getProcIdName(process string) (int, string, error) {
+	p := strings.TrimSpace(process)
+	lines := strings.Split(p, " ")
+	if len(lines) >= 4 {
+		pid, err := strconv.Atoi(lines[0])
+		if err != nil {
+			return -1, "", err
+		}
+		return pid, lines[len(lines)-1], nil
+	}
+	return -1, "", fmt.Errorf("pare proceess (%s) invalid", p)
+}
+
+func appShutdownCallback(waitMaxSecond uint64) error {
+	if destoryCallback != nil {
+		pollIntervalBase := time.Millisecond
+		shutdownPollIntervalMax := 500 * time.Millisecond
+		nextPollInterval := func() time.Duration {
+			interval := pollIntervalBase + time.Duration(rand.Intn(int(pollIntervalBase/10)))
+			pollIntervalBase *= 2
+			if pollIntervalBase > shutdownPollIntervalMax {
+				pollIntervalBase = shutdownPollIntervalMax
+			}
+			return interval
+		}
+		timer := time.NewTimer(nextPollInterval())
+		callbackDone, start := false, time.Now().Unix()
+		go func() {
+			log.Info("[Engine] call destoryCallback...")
+			destoryCallback()
+			callbackDone = true
+			log.Info("[Engine] call destoryCallback done")
+		}()
+		for {
+			if callbackDone { //等待 destoryCallback 完成
+				return nil
+			}
+			<-timer.C
+			if time.Now().Unix()-start > int64(waitMaxSecond) {
+				return fmt.Errorf("wait destoryCallback time out")
+			}
+			timer.Reset(nextPollInterval())
+		}
+	}
+	return nil
+}

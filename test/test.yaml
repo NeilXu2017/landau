@@ -1,0 +1,17 @@
+host: 
+port: 8080
+debug: false
+rpc_host:
+rpc_port: 8180
+region_id: 666888
+
+log:
+  config_file: conf/log.json
+  default_logger: main
+  gin_logger: gin
+
+cron:
+  - { name: "Scan Data Sync Job", enable: false, schedule: "@every 60s", func: "ScanDataSyncJob"}
+  - { name: "Auto Generate Data Sync Job", enable: false, schedule: "@every 5m", func: "AutoGenerateJob"}
+  - { name: "UBill Data Sync Job", enable: false, schedule: "@every 30s", func: "ScanUBillDataSyncJob"}
+  - { name: "Daily Unmatch Report Job", enable: false, schedule: "@every 15s", func: "DailyUnmatchReportJob" }
