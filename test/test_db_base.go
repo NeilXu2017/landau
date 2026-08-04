@@ -2,6 +2,7 @@ package test
 
 import (
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/NeilXu2017/landau/log"
@@ -38,6 +39,29 @@ type (
 	_DbVariableInfo struct {
 		Name  string `db:"Variable_name"`
 		Value string `db:"Value"`
+	}
+	VV6IpPublicCidrInfo struct {
+		Idx            int    `db:"idx"`              //primary key
+		Cidr           string `db:"cidr"`             //cidr 地址段
+		Qty            int    `db:"qty"`              //地址总个数.  =  可分配地址个数 + 已分配出去个数
+		AvailableQty   int    `db:"available_qty"`    //可分配地址个数
+		IpStart        net.IP `db:"ip_start"`         //地址段 最小值
+		IpEnd          net.IP `db:"ip_end"`           //地址段最大值
+		PartitionId    string `db:"partition_id"`     //所在partition id
+		SubnetCidrMask uint32 `db:"subnet_cidr_mask"` //subnet cidr mask
+		CidrMask       uint32 `db:"cidr_mask"`        //cidr mask
+	}
+	TV6IpAssignInfo struct {
+		Idx        int    `db:"idx"`         //primary key
+		EipId      string `db:"eip_id"`      //EIP 资源ID
+		Cid        string `db:"cid"`         //所属 CID
+		Cidr       string `db:"cidr"`        //EIP 地址, cidr 格式
+		CidrMask   int    `db:"cidr_mask"`   //掩码长度
+		IpStart    net.IP `db:"ip_start"`    //地址段 网段起始IP TODO landauData 升级支持 []byte  -> net.IP
+		IpEnd      net.IP `db:"ip_end"`      //网段结束IP
+		ParentCidr string `db:"parent_cidr"` //地址从哪个CIDR 创建
+		CreateTime int64  `db:"create_time"` //创建时间
+		Position   uint32 `db:"position"`    //在 Parent Cidr 位置  总的数量是:  2^(CidrMask-parent.CidrMask),  掩码长度差最大 32
 	}
 )
 

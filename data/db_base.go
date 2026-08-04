@@ -768,6 +768,9 @@ func (c *_TxWrap) Get(dbModel interface{}, strSQL string, args ...interface{}) (
 										fv.SetBool(true)
 									}
 								}
+							case reflect.Slice:
+								b := []byte(*val)
+								fv.SetBytes(b)
 							}
 						}
 					}
@@ -868,6 +871,9 @@ func (c *_TxWrap) Gets(dbModel interface{}, strSQL string, args ...interface{}) 
 										fv.SetBool(true)
 									}
 								}
+							case reflect.Slice:
+								b := []byte(*val)
+								fv.SetBytes(b)
 							}
 						}
 					}
