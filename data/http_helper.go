@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -72,6 +73,14 @@ type (
 		cookies []*http.Cookie
 		url     *url.URL
 	}
+	_CacheTLSConfig struct {
+		locker *sync.RWMutex
+		values map[string]*tls.Config
+	}
+	_CacheTransport struct {
+		locker *sync.RWMutex
+		values map[string]*http.Transport
+	}
 )
 
 const (
@@ -89,7 +98,87 @@ var (
 	LocalPrimaryAddress   = ""
 	LocalSecondaryAddress = ""
 	defaultRetryDelay     = []int{2, 2, 1} //默认重试间隔,第1次间隔2秒, 第2次间隔2秒,后续每次间隔1秒
+	cacheTlsConfig        = &_CacheTLSConfig{locker: &sync.RWMutex{}, values: make(map[string]*tls.Config)}
+	cacheTransport        = &_CacheTransport{locker: &sync.RWMutex{}, values: make(map[string]*http.Transport)}
 )
+
+func (c *_CacheTLSConfig) BuildTLSClientConfig(insecureSkipVerify bool, clientCertFile, rootCAFile, tlsServerName, clientKeyFile string) (*tls.Config, string, error) {
+	if !insecureSkipVerify && clientCertFile == "" && rootCAFile == "" && tlsServerName == "" {
+		return nil, "", nil
+	}
+	var v *tls.Config
+	key := fmt.Sprintf("%s%s%s%v", clientCertFile, rootCAFile, tlsServerName, insecureSkipVerify)
+	c.locker.RLock()
+	v = c.values[key]
+	c.locker.RUnlock()
+	if v != nil {
+		return v, key, nil
+	}
+	v = &tls.Config{InsecureSkipVerify: insecureSkipVerify, ServerName: tlsServerName}
+	if clientCertFile != "" && clientKeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(clientCertFile, clientKeyFile)
+		if err != nil {
+			return nil, "", fmt.Errorf("load client keypair: %w", err)
+		}
+		v.Certificates = []tls.Certificate{cert}
+	}
+	if rootCAFile != "" {
+		caPEM, err := os.ReadFile(rootCAFile)
+		if err != nil {
+			return nil, "", fmt.Errorf("read root CA %s: %w", rootCAFile, err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caPEM) {
+			return nil, "", fmt.Errorf("root CA %s: no certificates parsed", rootCAFile)
+		}
+		v.RootCAs = pool
+	}
+	c.locker.Lock()
+	c.values[key] = v
+	c.locker.Unlock()
+	return v, key, nil
+}
+
+func (c *_CacheTransport) GetTransport(p *HTTPHelper) (*http.Transport, error) {
+	tlsConfig, tlsKey, err := cacheTlsConfig.BuildTLSClientConfig(p.insecureSkipVerify, p.clientCertFile, p.rootCAFile, p.tlsServerName, p.clientKeyFile)
+	if err != nil {
+		return nil, err
+	}
+	localIp := ""
+	if !p.disableAssignSourceIp && (LocalPrimaryAddress != "" && LocalSecondaryAddress != "") {
+		if p.isPrimaryAddress {
+			localIp = LocalPrimaryAddress
+		} else {
+			localIp = LocalSecondaryAddress
+		}
+	}
+	var v *http.Transport
+	key := fmt.Sprintf("%s%s", localIp, tlsKey)
+	c.locker.RLock()
+	v = c.values[key]
+	c.locker.RUnlock()
+	if v != nil {
+		return v, nil
+	}
+	v = &http.Transport{
+		Proxy:                 nil,
+		DialContext:           (&net.Dialer{Timeout: time.Duration(p.dialTimeout) * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		TLSClientConfig:       tlsConfig,
+	}
+	if localIp != "" {
+		localAddr, _ := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:0", localIp))
+		v.DialContext = (&net.Dialer{Timeout: time.Duration(p.dialTimeout) * time.Second, KeepAlive: 30 * time.Second, LocalAddr: localAddr}).DialContext
+	}
+	c.locker.Lock()
+	c.values[key] = v
+	c.locker.Unlock()
+	return v, nil
+}
 
 // NewHTTPHelper 构造HTTPHelper实例
 func NewHTTPHelper(options ...HTTPHelperOptionFunc) (*HTTPHelper, error) {
@@ -415,37 +504,6 @@ func SetHTTPTLSServerName(serverName string) HTTPHelperOptionFunc {
 	}
 }
 
-// buildTLSClientConfig 依据 insecureSkipVerify / 客户端证书 / 根CA / ServerName
-// 组合出客户端 tls.Config。返回 (nil,nil) 表示无需自定义 TLS(走默认)。
-func (c *HTTPHelper) buildTLSClientConfig() (*tls.Config, error) {
-	if !c.insecureSkipVerify && c.clientCertFile == "" && c.rootCAFile == "" && c.tlsServerName == "" {
-		return nil, nil
-	}
-	cfg := &tls.Config{
-		InsecureSkipVerify: c.insecureSkipVerify, //nolint:gosec // 由调用方显式开启
-		ServerName:         c.tlsServerName,
-	}
-	if c.clientCertFile != "" && c.clientKeyFile != "" {
-		cert, err := tls.LoadX509KeyPair(c.clientCertFile, c.clientKeyFile)
-		if err != nil {
-			return nil, fmt.Errorf("load client keypair: %w", err)
-		}
-		cfg.Certificates = []tls.Certificate{cert}
-	}
-	if c.rootCAFile != "" {
-		caPEM, err := os.ReadFile(c.rootCAFile)
-		if err != nil {
-			return nil, fmt.Errorf("read root CA %s: %w", c.rootCAFile, err)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(caPEM) {
-			return nil, fmt.Errorf("root CA %s: no certificates parsed", c.rootCAFile)
-		}
-		cfg.RootCAs = pool
-	}
-	return cfg, nil
-}
-
 func SetHTTPServiceName(serviceName string) HTTPHelperOptionFunc {
 	return func(c *HTTPHelper) error {
 		c.serviceName = serviceName
@@ -584,35 +642,10 @@ func (c *HTTPHelper) _prepareRequest() (string, string, io.Reader, string) {
 func (c *HTTPHelper) Call() (string, error) {
 	start := time.Now()
 	reqURL, reqMethod, bodyReader, requestLoggerMsg := c._prepareRequest()
-	transport := &http.Transport{
-		Proxy: nil, //http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   time.Duration(c.dialTimeout) * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-	}
-	if tlsCfg, tlsErr := c.buildTLSClientConfig(); tlsErr != nil {
-		return "", tlsErr
-	} else if tlsCfg != nil {
-		transport.TLSClientConfig = tlsCfg
-	}
-	if !c.disableAssignSourceIp && (LocalPrimaryAddress != "" && LocalSecondaryAddress != "") {
-		var localAddr *net.TCPAddr
-		if c.isPrimaryAddress {
-			localAddr, _ = net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:0", LocalPrimaryAddress))
-		} else {
-			localAddr, _ = net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:0", LocalSecondaryAddress))
-		}
-		transport.DialContext = (&net.Dialer{
-			Timeout:   time.Duration(c.dialTimeout) * time.Second,
-			KeepAlive: 30 * time.Second,
-			LocalAddr: localAddr,
-		}).DialContext
+	transport, err := cacheTransport.GetTransport(c)
+	if err != nil {
+		log.Error2(c.logger, "[HTTP]\t[%s]\tURL:%s\t%s\tError:%v", time.Since(start), reqURL, requestLoggerMsg, err)
+		return "", err
 	}
 	client := &http.Client{Timeout: time.Duration(c.timeout) * time.Second, Transport: transport}
 	if c.delegatedHTTPRequest != nil {
@@ -770,25 +803,11 @@ func (c *HTTPHelper) Upload(fileFieldName string, filePath string) (string, erro
 		r.SetBasicAuth(c.basicAuthUserName, c.basicAuthPassword)
 	}
 	client := &http.Client{}
-	tlsCfg, tlsErr := c.buildTLSClientConfig()
-	if tlsErr != nil {
-		return "", tlsErr
+	transport, err := cacheTransport.GetTransport(c)
+	if err != nil {
+		return "", err
 	}
-	if tlsCfg != nil {
-		client.Transport = &http.Transport{
-			Proxy: nil, // http.ProxyFromEnvironment,
-			DialContext: (&net.Dialer{
-				Timeout:   time.Duration(c.dialTimeout) * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-			ForceAttemptHTTP2:     true,
-			MaxIdleConns:          100,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-			TLSClientConfig:       tlsCfg,
-		}
-	}
+	client.Transport = transport
 	if c.delegatedHTTPRequest != nil {
 		jar := &_HttpCookieJar{}
 		jar.cookies = c.delegatedHTTPRequest.Cookies()
