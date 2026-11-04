@@ -5,14 +5,15 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"github.com/NeilXu2017/landau/log"
-	"github.com/gin-gonic/gin"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"text/template"
 	"time"
+
+	"github.com/NeilXu2017/landau/log"
+	"github.com/gin-gonic/gin"
 )
 
 type (
@@ -658,4 +659,27 @@ func _healthChecking(notifyShutdown bool) {
 
 func NotifyCheckerShutdown() {
 	_healthChecking(true)
+}
+
+// 全量更新指定的 service 地址. Key: service name.  Value: address list
+func UpdateServiceAddress(p map[string][]string) {
+	syncServiceMesh.Lock()
+	defer syncServiceMesh.Unlock()
+	for serviceName, address := range p {
+		if v, ok := serviceHealthMesh[serviceName]; ok {
+			v.Address = address //go above 1.22.1
+			v.NextSequence = 0
+		} else {
+			serviceHealthMesh[serviceName] = &ServiceHealthInfo{
+				ServiceName:       serviceName,
+				Address:           address, //go above 1.22.1
+				Health:            make(map[string]int),
+				HealthOnSecondary: make(map[string]int),
+				CallCount:         make(map[string]uint64),
+				NextSequence:      0,
+				AvailableSeq:      make(map[int]int),
+				ReceiveTime:       make(map[string]int64),
+			}
+		}
+	}
 }
