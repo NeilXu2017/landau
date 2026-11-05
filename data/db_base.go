@@ -769,8 +769,16 @@ func (c *_TxWrap) Get(dbModel interface{}, strSQL string, args ...interface{}) (
 									}
 								}
 							case reflect.Slice:
-								b := []byte(*val)
-								fv.SetBytes(b)
+								if fv.CanAddr() {
+									if s, ok := fv.Addr().Interface().(sql.Scanner); ok {
+										_ = s.Scan([]byte(*val))
+										break
+									}
+								}
+								if fv.Type().Elem().Kind() == reflect.Uint8 {
+									b := []byte(*val)
+									fv.SetBytes(b)
+								}
 							}
 						}
 					}
